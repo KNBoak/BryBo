@@ -1,7 +1,8 @@
 import { Alert } from 'react-native';
 
-// Set to true to get Alert popups in addition to console logs
-export const DEBUG = true;
+// In dev builds, surface warn/error as native Alerts in addition to console
+// logs so they can't be missed. Production builds stay quiet (console only).
+export const DEBUG = typeof __DEV__ !== 'undefined' && __DEV__;
 
 type LogLevel = 'info' | 'warn' | 'error';
 

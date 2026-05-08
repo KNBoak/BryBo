@@ -11,6 +11,7 @@ import type {
   StorageAdapter,
 } from '@brybo/shared';
 import { logInfo, logWarn, logError } from '../utils/debug';
+import { seedAlMarIfMissing } from '../seeds/almarSeed';
 
 const TAG = 'DataStore';
 
@@ -72,54 +73,26 @@ export const useDataStore = create<DataState>((set, get) => ({
   init: async (storage) => {
     logInfo(TAG, 'init() start');
     try {
-      logInfo(TAG, 'Reading activeUserId from storage...');
-      const activeRes = await storage.getActiveUserId();
-      logInfo(TAG, 'getActiveUserId result', activeRes);
-
-      const activeUserId = activeRes.ok ? activeRes.data : null;
+      // Ensure the Al-Mar demo profile exists alongside whatever the user
+      // has already created. Idempotent — bails out if Al-Mar is already there.
+      const seeded = await seedAlMarIfMissing();
+      logInfo(TAG, 'seedAlMarIfMissing result', { seeded });
 
       logInfo(TAG, 'Reading users from storage...');
       const usersRes = await storage.getUsers();
       logInfo(TAG, 'getUsers result', { ok: usersRes.ok, count: usersRes.ok ? usersRes.data.length : 'err' });
 
-      if (activeUserId) {
-        logInfo(TAG, 'Active user found, loading full snapshot', { activeUserId });
-        const snapshot = await storage.exportAll(activeUserId);
-        logInfo(TAG, 'exportAll result', {
-          ok: snapshot.ok,
-          counts: snapshot.ok ? {
-            days: snapshot.data.days.length,
-            accounts: snapshot.data.accounts.length,
-            contacts: snapshot.data.contacts.length,
-            events: snapshot.data.events.length,
-          } : 'error',
-        });
-        set({
-          _storage: storage,
-          activeUserId,
-          users: usersRes.ok ? usersRes.data : [],
-          days: snapshot.ok ? snapshot.data.days : [],
-          accounts: snapshot.ok ? snapshot.data.accounts : [],
-          contacts: snapshot.ok ? snapshot.data.contacts : [],
-          contactMethods: snapshot.ok ? snapshot.data.contactMethods : [],
-          events: snapshot.ok ? snapshot.data.events : [],
-          eventAccounts: snapshot.ok ? snapshot.data.eventAccounts : [],
-          eventContacts: snapshot.ok ? snapshot.data.eventContacts : [],
-          _initialized: true,
-        });
-      } else {
-        logInfo(TAG, 'No active user — showing profile select');
-        set({
-          _storage: storage,
-          activeUserId: null,
-          users: usersRes.ok ? usersRes.data : [],
-          _initialized: true,
-        });
-      }
+      // Always start at the profile-select screen, even if a previous user was
+      // active. setActiveUser() loads that user's data on demand.
+      set({
+        _storage: storage,
+        activeUserId: null,
+        users: usersRes.ok ? usersRes.data : [],
+        _initialized: true,
+      });
       logInfo(TAG, 'init() complete');
     } catch (e) {
       logError(TAG, 'init() threw an exception', e);
-      // Still mark initialized so the app doesn't hang on the loading spinner
       set({ _initialized: true });
     }
   },
@@ -175,17 +148,18 @@ export const useDataStore = create<DataState>((set, get) => ({
   upsertUser: async (user) => {
     logInfo(TAG, 'upsertUser()', { id: user.id, name: user.name });
     const { _storage } = get();
-    if (!_storage) {
-      logWarn(TAG, 'upsertUser: _storage is null');
-    }
     set((s) => ({
       users: s.users.some((u) => u.id === user.id)
         ? s.users.map((u) => (u.id === user.id ? user : u))
         : [...s.users, user],
     }));
+    if (!_storage) {
+      logWarn(TAG, 'upsertUser: _storage is null — optimistic update only, not persisted');
+      return;
+    }
     logInfo(TAG, 'upsertUser: optimistic update done, saving to storage...');
     try {
-      const res = await _storage?.saveUser(user);
+      const res = await _storage.saveUser(user);
       logInfo(TAG, 'saveUser result', res);
     } catch (e) {
       logError(TAG, 'saveUser threw', e);
@@ -287,20 +261,39 @@ export const useDataStore = create<DataState>((set, get) => ({
 
   upsertEvent: async (event, accountIds, contactIds) => {
     logInfo(TAG, 'upsertEvent()', { id: event.id, type: event.type, accountIds, contactIds });
-    const { _storage } = get();
+    const { _storage, accounts } = get();
     const newEA: EventAccount[] = accountIds.map((account_id) => ({ event_id: event.id, account_id }));
     const newEC: EventContact[] = contactIds.map((contact_id) => ({ event_id: event.id, contact_id }));
+
+    // When a non-cancelled sale is logged, automatically promote any linked
+    // prospect account to "customer". This keeps the badge from going stale
+    // without forcing the user to flip it manually.
+    const isLiveSale = !event.is_cancelled && event.amount != null && event.amount > 0;
+    const accountsToPromote = isLiveSale
+      ? accounts.filter((a) => accountIds.includes(a.id) && a.is_prospect)
+      : [];
+
     set((s) => ({
       events: s.events.some((e) => e.id === event.id)
         ? s.events.map((e) => (e.id === event.id ? event : e))
         : [...s.events, event],
       eventAccounts: [...s.eventAccounts.filter((ea) => ea.event_id !== event.id), ...newEA],
       eventContacts: [...s.eventContacts.filter((ec) => ec.event_id !== event.id), ...newEC],
+      accounts: accountsToPromote.length > 0
+        ? s.accounts.map((a) =>
+            accountsToPromote.some((p) => p.id === a.id)
+              ? { ...a, is_prospect: false, updated_at: event.updated_at }
+              : a,
+          )
+        : s.accounts,
     }));
     try {
       await _storage?.saveEvent(event);
       await _storage?.replaceEventAccounts(event.id, accountIds);
       await _storage?.replaceEventContacts(event.id, contactIds);
+      for (const a of accountsToPromote) {
+        await _storage?.saveAccount({ ...a, is_prospect: false, updated_at: event.updated_at });
+      }
     } catch (e) {
       logError(TAG, 'upsertEvent: storage threw', e);
     }

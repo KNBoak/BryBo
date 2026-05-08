@@ -118,6 +118,12 @@ export const SemanticColors = {
     destructive: palette.red[600],
     destructiveHover: palette.red[500],
     destructiveText: '#ffffff',
+    // Outlined / "ghost" destructive — for contextual delete actions where a
+    // solid red would be too loud (e.g. a Delete button sitting next to Save).
+    destructiveGhost: 'transparent',
+    destructiveGhostHover: palette.red[900],
+    destructiveGhostBorder: palette.red[700],
+    destructiveGhostText: palette.red[400],
   },
 
   status: {
@@ -208,11 +214,17 @@ export const typography = {
 } as const;
 
 // ─── Spacing ─────────────────────────────────────────────────────────────────
+// 4 px base grid with half-steps where finer control is needed (e.g. compact
+// pill paddings). Components MUST NOT add literal numbers — use a token.
 export const spacing = {
   0: 0,
+  0.5: 2,
   1: 4,
+  1.5: 6,
   2: 8,
+  2.5: 10,
   3: 12,
+  3.5: 14,
   4: 16,
   5: 20,
   6: 24,

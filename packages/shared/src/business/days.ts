@@ -1,35 +1,12 @@
-import type { Day } from '../types/entities';
-import type { StorageAdapter } from '../storage/StorageAdapter';
-
-export async function ensureDayExists(
-  userId: string,
-  date: string,
-  storage: StorageAdapter,
-): Promise<Day> {
-  const existing = await storage.getDayByDate(userId, date);
-  if (existing.ok && existing.data !== null) {
-    return existing.data;
-  }
-
-  const now = new Date().toISOString();
-  const day: Day = {
-    id: crypto.randomUUID(),
-    user_id: userId,
-    date,
-    notes: null,
-    created_at: now,
-    updated_at: now,
-  };
-
-  const saved = await storage.saveDay(day);
-  if (!saved.ok) {
-    throw new Error(`Failed to create day record: ${saved.error}`);
-  }
-  return saved.data;
-}
-
+// Returns today's date as YYYY-MM-DD in the device's local timezone.
+// Using toISOString() here would give UTC, which can be a different day for
+// users west of UTC in the evening.
 export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export function formatDate(date: string): string {

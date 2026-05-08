@@ -1,12 +1,12 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDataStore } from '../src/stores/dataStore';
 import { AsyncStorageAdapter } from '../src/storage/AsyncStorageAdapter';
 import { Spinner } from '../src/components/ui';
-import { colors } from '../src/theme';
+import { colors, spacing, typography } from '../src/theme';
 import { logInfo, logError } from '../src/utils/debug';
 
 const storage = new AsyncStorageAdapter();
@@ -29,31 +29,33 @@ export default function RootLayout() {
       logInfo('Layout', 'Not initialized yet — skipping guard');
       return;
     }
-    const inTabsGroup = segments[0] === '(tabs)';
-    if (!activeUserId && inTabsGroup) {
-      logInfo('Layout', 'No active user in tabs → redirect to /');
+    const first = (segments as readonly string[])[0];
+    const onIndex = first === undefined;
+    const onMain = first === 'main';
+    if (!activeUserId && !onIndex) {
+      logInfo('Layout', 'No active user → redirect to /');
       router.replace('/');
-    } else if (
-      activeUserId &&
-      !inTabsGroup &&
-      segments[0] !== 'accounts' &&
-      segments[0] !== 'contacts' &&
-      segments[0] !== 'events' &&
-      segments[0] !== 'days'
-    ) {
-      logInfo('Layout', 'Active user, not in tabs → redirect to myday');
-      router.replace('/(tabs)/myday');
+    } else if (activeUserId && !onMain) {
+      logInfo('Layout', 'Active user → redirect to /main');
+      router.replace('/main');
     } else {
       logInfo('Layout', 'Guard: no redirect needed');
     }
-  }, [initialized, activeUserId]);
+  }, [initialized, activeUserId, segments]);
 
   if (!initialized) {
-    logInfo('Layout', 'Rendering loading spinner (not initialized)');
+    logInfo('Layout', 'Rendering splash (not initialized)');
     return (
       <SafeAreaProvider>
-        <View style={styles.loading}>
-          <Spinner size="large" />
+        <View style={styles.splash}>
+          <View style={styles.splashLogo}>
+            <Text style={styles.splashLogoText}>B</Text>
+          </View>
+          <Text style={styles.splashTitle}>BryBo</Text>
+          <Text style={styles.splashSubtitle}>your day, logged</Text>
+          <View style={styles.splashSpinner}>
+            <Spinner size="small" />
+          </View>
         </View>
         <StatusBar style="light" />
       </SafeAreaProvider>
@@ -70,10 +72,39 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  loading: {
+  splash: {
     flex: 1,
     backgroundColor: colors.bg.canvas,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing[3],
+  },
+  splashLogo: {
+    width: 72,
+    height: 72,
+    borderRadius: 999,
+    backgroundColor: colors.interactive.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing[2],
+  },
+  splashLogoText: {
+    color: '#fff',
+    fontSize: typography.size['3xl'],
+    fontWeight: typography.weight.bold,
+    letterSpacing: -1,
+  },
+  splashTitle: {
+    color: colors.text.primary,
+    fontSize: typography.size['2xl'],
+    fontWeight: typography.weight.bold,
+    letterSpacing: -0.5,
+  },
+  splashSubtitle: {
+    color: colors.text.secondary,
+    fontSize: typography.size.sm,
+  },
+  splashSpinner: {
+    marginTop: spacing[6],
   },
 });

@@ -2,7 +2,7 @@ import React from 'react';
 import { Text, Pressable, StyleSheet, ActivityIndicator, View } from 'react-native';
 import { colors, spacing, radius, typography } from '../../theme';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'destructiveGhost';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps {
@@ -13,13 +13,38 @@ interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   fullWidth?: boolean;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
-const variantMap: Record<ButtonVariant, { bg: string; text: string; border?: string }> = {
-  primary: { bg: colors.interactive.primary, text: colors.interactive.primaryText },
-  secondary: { bg: colors.interactive.secondary, text: colors.interactive.secondaryText },
-  ghost: { bg: colors.interactive.ghost, text: colors.interactive.ghostText, border: colors.border.default },
-  destructive: { bg: colors.interactive.destructive, text: colors.interactive.destructiveText },
+const variantMap: Record<ButtonVariant, { bg: string; bgPressed: string; text: string; border?: string }> = {
+  primary: {
+    bg: colors.interactive.primary,
+    bgPressed: colors.interactive.primaryHover,
+    text: colors.interactive.primaryText,
+  },
+  secondary: {
+    bg: colors.interactive.secondary,
+    bgPressed: colors.interactive.secondaryHover,
+    text: colors.interactive.secondaryText,
+  },
+  ghost: {
+    bg: colors.interactive.ghost,
+    bgPressed: colors.interactive.ghostHover,
+    text: colors.interactive.ghostText,
+    border: colors.border.default,
+  },
+  destructive: {
+    bg: colors.interactive.destructive,
+    bgPressed: colors.interactive.destructiveHover,
+    text: colors.interactive.destructiveText,
+  },
+  destructiveGhost: {
+    bg: colors.interactive.destructiveGhost,
+    bgPressed: colors.interactive.destructiveGhostHover,
+    text: colors.interactive.destructiveGhostText,
+    border: colors.interactive.destructiveGhostBorder,
+  },
 };
 
 const sizeMap: Record<ButtonSize, { px: number; py: number; font: number }> = {
@@ -36,6 +61,8 @@ export function Button({
   disabled = false,
   loading = false,
   fullWidth = false,
+  accessibilityLabel,
+  accessibilityHint,
 }: ButtonProps) {
   const v = variantMap[variant];
   const s = sizeMap[size];
@@ -44,10 +71,14 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
       style={({ pressed }) => [
         styles.base,
         {
-          backgroundColor: pressed ? colors.interactive.primaryHover : v.bg,
+          backgroundColor: pressed ? v.bgPressed : v.bg,
           paddingHorizontal: s.px,
           paddingVertical: s.py,
           borderWidth: v.border ? 1 : 0,

@@ -1,10 +1,10 @@
 import React from 'react';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { colors } from '../../theme';
 
 interface SpinnerProps {
   size?: 'small' | 'large';
-  style?: object;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function Spinner({ size = 'small', style }: SpinnerProps) {

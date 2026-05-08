@@ -7,9 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "zod": "^3.23.8"
-  },
+  "dependencies": {},
   "devDependencies": {
     "typescript": "^5.4.5"
   }

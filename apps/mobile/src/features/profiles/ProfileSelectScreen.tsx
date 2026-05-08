@@ -4,15 +4,17 @@ import {
   Text,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   Pressable,
   Modal,
+  Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDataStore } from '../../stores/dataStore';
 import { colors, spacing, radius, typography } from '../../theme';
-import { Button, Input, Card, EmptyState, Spinner } from '../../components/ui';
+import { Button, Input, Card, EmptyState } from '../../components/ui';
 import { logInfo, logWarn, logError } from '../../utils/debug';
 import { generateId } from '../../utils/ids';
+import { nextProfileColor, colorForUser } from '../../utils/profileColors';
 import type { User } from '@brybo/shared';
 
 const TAG = 'ProfileSelect';
@@ -21,6 +23,7 @@ export function ProfileSelectScreen() {
   const users = useDataStore((s) => s.users);
   const upsertUser = useDataStore((s) => s.upsertUser);
   const setActiveUser = useDataStore((s) => s.setActiveUser);
+  const deleteUser = useDataStore((s) => s.deleteUser);
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -38,7 +41,7 @@ export function ProfileSelectScreen() {
       logInfo(TAG, 'Generating ID...');
       const id = generateId();
       logInfo(TAG, 'ID generated', { id });
-      const user: User = { id, name: trimmed, created_at: now };
+      const user: User = { id, name: trimmed, color: nextProfileColor(users.length), created_at: now };
       logInfo(TAG, 'Calling upsertUser...');
       await upsertUser(user);
       logInfo(TAG, 'upsertUser done, calling setActiveUser...');
@@ -63,6 +66,28 @@ export function ProfileSelectScreen() {
     }
   };
 
+  const handleDelete = (user: User) => {
+    Alert.alert(
+      `Delete profile "${user.name}"?`,
+      'This will permanently remove the profile and all of its accounts, contacts, and events. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteUser(user.id);
+              logInfo(TAG, 'profile deleted', { id: user.id });
+            } catch (e) {
+              logError(TAG, 'deleteUser threw', e);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
@@ -81,13 +106,20 @@ export function ProfileSelectScreen() {
             data={users}
             keyExtractor={(u) => u.id}
             contentContainerStyle={styles.list}
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <Card onPress={() => handleSelect(item)} style={styles.profileCard}>
                 <View style={styles.profileRow}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{item.name[0].toUpperCase()}</Text>
+                  <View style={[styles.avatar, { backgroundColor: colorForUser(item, index) }]}>
+                    <Text style={styles.avatarText}>{(item.name[0] ?? '?').toUpperCase()}</Text>
                   </View>
                   <Text style={styles.profileName}>{item.name}</Text>
+                  <Pressable
+                    style={styles.deleteBtn}
+                    hitSlop={10}
+                    onPress={() => handleDelete(item)}
+                  >
+                    <Text style={styles.deleteBtnText}>×</Text>
+                  </Pressable>
                 </View>
               </Card>
             )}
@@ -170,9 +202,24 @@ const styles = StyleSheet.create({
     fontWeight: typography.weight.bold,
   },
   profileName: {
+    flex: 1,
     fontSize: typography.size.md,
     fontWeight: typography.weight.semibold,
     color: colors.text.primary,
+  },
+  deleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    borderWidth: 0.5,
+    borderColor: colors.border.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtnText: {
+    color: colors.text.danger,
+    fontSize: 20,
+    lineHeight: 20,
   },
   footer: { marginTop: spacing[6] },
   modalOverlay: {
@@ -191,6 +238,7 @@ const styles = StyleSheet.create({
     fontSize: typography.size.xl,
     fontWeight: typography.weight.bold,
     color: colors.text.primary,
+    letterSpacing: typography.letterSpacing.tight,
   },
   modalActions: {
     flexDirection: 'row',

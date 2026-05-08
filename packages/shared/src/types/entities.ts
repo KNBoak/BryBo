@@ -1,14 +1,24 @@
 export interface User {
   id: string;
   name: string;
+  color?: string;
   created_at: string;
 }
+
+export type NonWorkingReason = 'holiday' | 'vacation' | 'sick' | 'personal' | 'weekend' | 'other';
 
 export interface Day {
   id: string;
   user_id: string;
   date: string; // YYYY-MM-DD, unique per user
   notes: string | null;
+  // Tri-state with weekend fallback when undefined:
+  //   true  → explicitly marked working (overrides weekend default)
+  //   false → not working
+  //   undefined → treat Sat/Sun as non-working, all other dates as working
+  is_working_day?: boolean;
+  // Optional reason for non-working days (vacation, holiday, etc.).
+  non_working_reason?: NonWorkingReason;
   created_at: string;
   updated_at: string;
 }
@@ -23,6 +33,7 @@ export interface Account {
   phone: string | null;
   website: string | null;
   notes: string | null;
+  is_prospect: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +80,7 @@ export interface Event {
   user_id: string;
   day_id: string;
   type: string; // EventTypePrimary | freeform string
+  status: 'todo' | 'done';
   notes: string | null;
   amount: number | null; // only for sale/revenue events
   is_cancelled: boolean;

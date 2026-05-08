@@ -3,7 +3,11 @@
     "allow": [
       "Bash(git -C /c/Users/knboa/dev/BryBo log --oneline -10)",
       "Bash(npm install *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "WebFetch(domain:docs.expo.dev)",
+      "Bash(npx expo *)",
+      "Bash(npm run *)",
+      "Bash(grep -E \"/react$\")"
     ]
   }
 }

@@ -12,5 +12,9 @@
   },
   "devDependencies": {
     "typescript": "^5.4.5"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   }
 }
