@@ -1447,6 +1447,20 @@ export function MainScreen() {
         }
         onOpenAccount={(id) => setModal({ kind: 'account-detail', accountId: id })}
         onOpenDay={(date) => { setViewDate(date); closeModal(); }}
+        onAddEvent={(contactId) => {
+          const c = storeContacts.find((x) => x.id === contactId);
+          const fullName = c ? `${c.first_name} ${c.last_name}`.trim() || '—' : '';
+          const accountIds = c?.account_id ? [c.account_id] : [];
+          setModal({
+            kind: 'event-form',
+            initial: {
+              contactIds: [contactId],
+              accountIds,
+              primaryAccountId: c?.account_id ?? null,
+              title: fullName ? `New event for ${fullName}` : 'New event',
+            },
+          });
+        }}
       />
 
       {/* Event form (used for add-from-account) */}

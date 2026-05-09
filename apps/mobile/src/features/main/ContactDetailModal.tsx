@@ -17,6 +17,7 @@ interface Props {
   onSaved?: (id: string) => void;
   onOpenAccount?: (id: string) => void;
   onOpenDay?: (dateIso: string) => void;
+  onAddEvent?: (contactId: string) => void;
 }
 
 const TAG = 'ContactDetailModal';
@@ -53,7 +54,7 @@ const EMPTY_DRAFT = {
   notes: '',
 };
 
-export function ContactDetailModal({ visible, contactId, linkToAccountId, onClose, onSaved, onOpenAccount, onOpenDay }: Props) {
+export function ContactDetailModal({ visible, contactId, linkToAccountId, onClose, onSaved, onOpenAccount, onOpenDay, onAddEvent }: Props) {
   const contacts = useDataStore((s) => s.contacts);
   const contactMethods = useDataStore((s) => s.contactMethods);
   const accounts = useDataStore((s) => s.accounts);
@@ -462,7 +463,17 @@ export function ContactDetailModal({ visible, contactId, linkToAccountId, onClos
             {!isNew && existing && (
               <>
                 <View style={fieldStyles.wrap}>
-                  <Text style={fieldStyles.label}>Upcoming</Text>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={fieldStyles.label}>Upcoming</Text>
+                    {onAddEvent ? (
+                      <Pressable
+                        style={styles.addEventBtn}
+                        onPress={() => onAddEvent(existing.id)}
+                      >
+                        <Text style={styles.addEventBtnText}>+ Add event</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                   {upcomingEvents.length === 0 ? (
                     <Text style={styles.eventsEmpty}>Nothing scheduled.</Text>
                   ) : (
@@ -732,6 +743,23 @@ const styles = StyleSheet.create({
     borderColor: colors.border.default,
   },
   addMethodBtnText: { color: colors.text.link, fontSize: typography.size.xs },
+
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  addEventBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1] + 2,
+    borderRadius: radius.full,
+    backgroundColor: colors.bg.surface,
+    borderWidth: 0.5,
+    borderColor: colors.border.default,
+    marginTop: spacing[1],
+  },
+  addEventBtnText: { color: colors.text.link, fontSize: typography.size.xs },
 
   eventsEmpty: {
     fontSize: typography.size.xs,
