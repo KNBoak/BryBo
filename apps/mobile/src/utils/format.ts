@@ -4,10 +4,11 @@
  * Cents present: $2,500.50
  */
 export function formatUSD(amount: number): string {
+  const hasCents = amount % 1 !== 0;
   return (
     '$' +
     new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 0,
+      minimumFractionDigits: hasCents ? 2 : 0,
       maximumFractionDigits: 2,
     }).format(amount)
   );
