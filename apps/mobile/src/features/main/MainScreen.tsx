@@ -869,6 +869,12 @@ export function MainScreen() {
             onPress: () => { closeModal(); startEditEntry(entry); },
           },
           {
+            key: 'follow-up',
+            icon: '➤',
+            label: 'Follow-up…',
+            onPress: () => { closeModal(); startFollowUp(entry); },
+          },
+          {
             key: 'delete',
             icon: '🗑️',
             label: 'Delete',
