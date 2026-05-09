@@ -11,3 +11,5 @@ export { Divider } from './Divider';
 export { Field } from './Field';
 export { Pill } from './Pill';
 export { Tag } from './Tag';
+export { RowActionsSheet } from './RowActionsSheet';
+export type { RowAction, RowActionGroup, RowActionsSheetProps } from './RowActionsSheet';
