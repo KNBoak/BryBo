@@ -229,6 +229,18 @@ export const useDataStore = create<DataState>((set, get) => ({
   upsertContact: async (contact, methods) => {
     logInfo(TAG, 'upsertContact()', { id: contact.id });
     const { _storage } = get();
+    const previous = get().contacts.find((c) => c.id === contact.id);
+    const orphanedAccountId =
+      previous && previous.account_id && previous.account_id !== contact.account_id
+        ? previous.account_id
+        : null;
+    const now = new Date().toISOString();
+    const accountsToUpdate = orphanedAccountId
+      ? get().accounts.filter(
+          (a) => a.id === orphanedAccountId && a.primary_contact_id === contact.id,
+        )
+      : [];
+
     set((s) => ({
       contacts: s.contacts.some((c) => c.id === contact.id)
         ? s.contacts.map((c) => (c.id === contact.id ? contact : c))
@@ -237,10 +249,20 @@ export const useDataStore = create<DataState>((set, get) => ({
         ...s.contactMethods.filter((m) => m.contact_id !== contact.id),
         ...methods,
       ],
+      accounts: accountsToUpdate.length === 0
+        ? s.accounts
+        : s.accounts.map((a) =>
+            accountsToUpdate.some((u) => u.id === a.id)
+              ? { ...a, primary_contact_id: null, updated_at: now }
+              : a,
+          ),
     }));
     try {
       await _storage?.saveContact(contact);
       await _storage?.replaceContactMethods(contact.id, methods);
+      for (const a of accountsToUpdate) {
+        await _storage?.saveAccount({ ...a, primary_contact_id: null, updated_at: now });
+      }
     } catch (e) {
       logError(TAG, 'upsertContact: storage threw', e);
     }
@@ -249,14 +271,24 @@ export const useDataStore = create<DataState>((set, get) => ({
   deleteContact: async (id) => {
     logInfo(TAG, 'deleteContact()', { id });
     const { _storage } = get();
+    const accountsToUpdate = get().accounts.filter((a) => a.primary_contact_id === id);
+    const now = new Date().toISOString();
     set((s) => ({
       contacts: s.contacts.filter((c) => c.id !== id),
       contactMethods: s.contactMethods.filter((m) => m.contact_id !== id),
       eventContacts: s.eventContacts.filter((ec) => ec.contact_id !== id),
+      accounts: s.accounts.map((a) =>
+        a.primary_contact_id === id
+          ? { ...a, primary_contact_id: null, updated_at: now }
+          : a,
+      ),
     }));
     await _storage?.deleteContact(id);
     await _storage?.replaceContactMethods(id, []);
     await _storage?.deleteEventContactsForContact(id);
+    for (const a of accountsToUpdate) {
+      await _storage?.saveAccount({ ...a, primary_contact_id: null, updated_at: now });
+    }
   },
 
   upsertEvent: async (event, accountIds, contactIds) => {
