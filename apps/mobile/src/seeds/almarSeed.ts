@@ -10,11 +10,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type {
-  User, Account, Day, Event, EventAccount,
-  Contact, ContactMethod, EventContact,
-} from '@brybo/shared';
-import { today as todayIso } from '@brybo/shared';
+import type { User, Account, Day, Event, EventAccount } from '@brybo/shared';
 import { generateId } from '../utils/ids';
 import { logInfo, logError } from '../utils/debug';
 
@@ -25,11 +21,8 @@ const KEYS = {
   users: 'brybo_users',
   days: 'brybo_days',
   accounts: 'brybo_accounts',
-  contacts: 'brybo_contacts',
-  contactMethods: 'brybo_contactMethods',
   events: 'brybo_events',
   eventAccounts: 'brybo_eventAccounts',
-  eventContacts: 'brybo_eventContacts',
 } as const;
 
 const YEARS = [2021, 2022, 2023, 2024, 2025, 2026] as const;
@@ -339,51 +332,6 @@ function yesterdayIso(): string {
   return `${y}-${m}-${day}`;
 }
 
-// A small, narrative-rich demo (one account + one contact + a 9-month history
-// across the 2 entities) so AI Assist has interesting context to work with the
-// first time the user opens it. Lives in the Al-Mar profile alongside the
-// imported financial data.
-interface DemoEvent {
-  date: string;        // YYYY-MM-DD; '__TODAY__' resolves at seed time
-  status: 'todo' | 'done';
-  notes: string;
-  amount: number | null;
-}
-const DEMO_EVENTS: DemoEvent[] = [
-  {
-    date: '2025-09-15', status: 'done', amount: null,
-    notes: 'Site visit at the Avon Crescent property. Tom showed me the retaining wall problem — wants quote for 80ft of black aluminum railing along the new patio.',
-  },
-  {
-    date: '2025-09-22', status: 'done', amount: 4200,
-    notes: 'Closed — black aluminum railing for the patio (80ft + 4 corner posts). Install in 2 weeks.',
-  },
-  {
-    date: '2025-11-08', status: 'done', amount: null,
-    notes: 'Lunch meet at Pazzo to discuss commercial expansion. Tom is bidding on a 3-building condo project at Erie & Wellington — could be 600+ ft of railing if he wins. Won\'t know until February.',
-  },
-  {
-    date: '2026-02-14', status: 'done', amount: null,
-    notes: 'Tom called — won the condo bid! Wants to schedule a measure-up in March. Mentioned his son Mason committed to Western for engineering, starts in fall.',
-  },
-  {
-    date: '2026-03-20', status: 'done', amount: 18500,
-    notes: 'Deposit invoice for the condo project. First batch (Building A railings) ships in 4 weeks. Karen asked for the invoice itemized by building so they can bill the GC properly.',
-  },
-  {
-    date: '2026-04-25', status: 'done', amount: null,
-    notes: 'Stopped by site to deliver Building A railings. Karen was running the office — said Tom is in Florida for spring break with the family. Back next week. Building B measurements still need to be confirmed before next batch.',
-  },
-  {
-    date: '__TODAY__', status: 'todo', amount: null,
-    notes: 'Follow up with Tom re: condo project — need Building B exact measurements before next batch can be cut.',
-  },
-  {
-    date: '__TODAY__', status: 'todo', amount: null,
-    notes: 'Email Karen the itemized invoice for the March deposit broken out by building — she asked for it last week.',
-  },
-];
-
 async function readArr<T>(key: string): Promise<T[]> {
   const raw = await AsyncStorage.getItem(key);
   return raw ? (JSON.parse(raw) as T[]) : [];
@@ -468,137 +416,31 @@ export async function seedAlMarIfMissing(): Promise<boolean> {
       }
     }
 
-    // ── Demo account + contact + history ────────────────────────
-    const today = todayIso();
-    const demoEventDates = Array.from(new Set(
-      DEMO_EVENTS.map((e) => e.date === '__TODAY__' ? today : e.date),
-    ));
-    // Reuse year-end days where possible; only create new Day rows for dates
-    // that don't already exist in newDays.
-    const existingDateMap = new Map(newDays.map((d) => [d.date, d]));
-    const demoDays: Day[] = [];
-    for (const date of demoEventDates) {
-      if (existingDateMap.has(date)) continue;
-      const d: Day = {
-        id: generateId(),
-        user_id: user.id,
-        date,
-        notes: null,
-        created_at: now,
-        updated_at: now,
-      };
-      demoDays.push(d);
-      existingDateMap.set(date, d);
-    }
-
-    const demoAccount: Account = {
-      id: generateId(),
-      user_id: user.id,
-      name: 'Brookside Renovations',
-      city: 'Stratford',
-      state: 'ON',
-      address: '142 Avon Crescent',
-      phone: '519-555-0142',
-      website: 'brooksidereno.example.com',
-      notes: 'Long-time customer. Owner Tom prefers email/text over phone. Known for premium aluminum railings — typically orders Q2/Q3. Currently working on a 3-building condo expansion at Erie & Wellington (won the bid Feb 2026).',
-      is_prospect: false,
-      primary_contact_id: null,
-      created_at: now,
-      updated_at: now,
-    };
-
-    const demoContact: Contact = {
-      id: generateId(),
-      user_id: user.id,
-      account_id: demoAccount.id,
-      first_name: 'Tom',
-      last_name: 'Whitfield',
-      title: 'Owner',
-      notes: 'Prefers texting over calling. Wife Karen runs the showroom and handles invoicing. Son Mason starting Western Engineering in fall 2026 — has talked about eventually handing off the business.',
-      created_at: now,
-      updated_at: now,
-    };
-
-    const demoMethods: ContactMethod[] = [
-      {
-        id: generateId(),
-        contact_id: demoContact.id,
-        type: 'cell',
-        value: '519-555-0123',
-        label: null,
-        is_primary: true,
-      },
-      {
-        id: generateId(),
-        contact_id: demoContact.id,
-        type: 'email',
-        value: 'tom@brooksidereno.example.com',
-        label: null,
-        is_primary: false,
-      },
-    ];
-
-    const demoEvents: Event[] = [];
-    const demoEventAccounts: EventAccount[] = [];
-    const demoEventContacts: EventContact[] = [];
-    for (const de of DEMO_EVENTS) {
-      const date = de.date === '__TODAY__' ? today : de.date;
-      const day = existingDateMap.get(date)!;
-      const event: Event = {
-        id: generateId(),
-        user_id: user.id,
-        day_id: day.id,
-        type: de.amount != null ? 'sale' : 'note',
-        status: de.status,
-        notes: de.notes,
-        amount: de.amount,
-        is_cancelled: false,
-        source_event_id: null,
-        created_at: now,
-        updated_at: now,
-      };
-      demoEvents.push(event);
-      demoEventAccounts.push({ event_id: event.id, account_id: demoAccount.id });
-      demoEventContacts.push({ event_id: event.id, contact_id: demoContact.id });
-    }
-
     // Merge with existing storage so other profiles and their data survive.
     const [
       existingDays,
       existingAccounts,
-      existingContacts,
-      existingContactMethods,
       existingEvents,
       existingEventAccounts,
-      existingEventContacts,
     ] = await Promise.all([
       readArr<Day>(KEYS.days),
       readArr<Account>(KEYS.accounts),
-      readArr<Contact>(KEYS.contacts),
-      readArr<ContactMethod>(KEYS.contactMethods),
       readArr<Event>(KEYS.events),
       readArr<EventAccount>(KEYS.eventAccounts),
-      readArr<EventContact>(KEYS.eventContacts),
     ]);
 
     await AsyncStorage.multiSet([
       [KEYS.users, JSON.stringify([...existingUsers, user])],
-      [KEYS.days, JSON.stringify([...existingDays, ...newDays, ...demoDays])],
-      [KEYS.accounts, JSON.stringify([...existingAccounts, ...newAccounts, demoAccount])],
-      [KEYS.contacts, JSON.stringify([...existingContacts, demoContact])],
-      [KEYS.contactMethods, JSON.stringify([...existingContactMethods, ...demoMethods])],
-      [KEYS.events, JSON.stringify([...existingEvents, ...newEvents, ...demoEvents])],
-      [KEYS.eventAccounts, JSON.stringify([...existingEventAccounts, ...newEventAccounts, ...demoEventAccounts])],
-      [KEYS.eventContacts, JSON.stringify([...existingEventContacts, ...demoEventContacts])],
+      [KEYS.days, JSON.stringify([...existingDays, ...newDays])],
+      [KEYS.accounts, JSON.stringify([...existingAccounts, ...newAccounts])],
+      [KEYS.events, JSON.stringify([...existingEvents, ...newEvents])],
+      [KEYS.eventAccounts, JSON.stringify([...existingEventAccounts, ...newEventAccounts])],
     ]);
 
     logInfo(TAG, 'seed complete', {
-      accounts: newAccounts.length + 1,
-      events: newEvents.length + demoEvents.length,
-      eventAccounts: newEventAccounts.length + demoEventAccounts.length,
-      contacts: 1,
-      contactMethods: demoMethods.length,
-      eventContacts: demoEventContacts.length,
+      accounts: newAccounts.length,
+      events: newEvents.length,
+      eventAccounts: newEventAccounts.length,
     });
     return true;
   } catch (e) {
