@@ -161,26 +161,12 @@ function formatDateLong(iso: string) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-function matchesLastTouch(
-  lastInteractionIso: string | null,
-  todayIso: string,
-  filter: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never',
-): boolean {
-  if (filter === 'any') return true;
-  if (filter === 'never') return lastInteractionIso == null;
-  if (lastInteractionIso == null) {
-    return filter === 'stale3' || filter === 'stale6';
-  }
-  const daysSince = Math.floor(
-    (new Date(todayIso + 'T00:00:00').getTime() -
-      new Date(lastInteractionIso + 'T00:00:00').getTime()) /
-      86_400_000,
-  );
-  if (filter === 'week') return daysSince <= 7;
-  if (filter === 'month') return daysSince <= 30;
-  if (filter === 'stale3') return daysSince >= 90;
-  if (filter === 'stale6') return daysSince >= 180;
-  return true;
+function compareByLastTouch<T extends { lastInteraction: string | null }>(a: T, b: T): number {
+  // Most recent first; null (never-touched) always ranks last.
+  if (a.lastInteraction == null && b.lastInteraction == null) return 0;
+  if (a.lastInteraction == null) return 1;
+  if (b.lastInteraction == null) return -1;
+  return b.lastInteraction.localeCompare(a.lastInteraction);
 }
 
 function relativeDay(iso: string, todayIso: string) {
@@ -347,9 +333,9 @@ export function MainScreen() {
   const [accountsProspectsOnly, setAccountsProspectsOnly] = useState(false);
   const [accountsSearch, setAccountsSearch] = useState('');
   const [contactsSearch, setContactsSearch] = useState('');
-  type LastTouchFilter = 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never';
-  const [accountsLastTouch, setAccountsLastTouch] = useState<LastTouchFilter>('any');
-  const [contactsLastTouch, setContactsLastTouch] = useState<LastTouchFilter>('any');
+  type ListSort = 'alpha' | 'recent';
+  const [accountsSort, setAccountsSort] = useState<ListSort>('alpha');
+  const [contactsSort, setContactsSort] = useState<ListSort>('alpha');
 
   // Modal state — single discriminated union keeps things simple.
   // 'mode' on the list modals: 'browse' opens detail on tap; 'pick' selects into editing.
@@ -378,11 +364,11 @@ export function MainScreen() {
   React.useEffect(() => {
     if (modal.kind !== 'accounts-list') {
       setAccountsSearch('');
-      setAccountsLastTouch('any');
+      setAccountsSort('alpha');
     }
     if (modal.kind !== 'contacts-list') {
       setContactsSearch('');
-      setContactsLastTouch('any');
+      setContactsSort('alpha');
     }
   }, [modal.kind]);
 
@@ -1184,7 +1170,12 @@ export function MainScreen() {
                     (a.city ?? '').toLowerCase().includes(q)
                   );
                 })
-                .filter((a) => matchesLastTouch(a.lastInteraction, today, accountsLastTouch));
+                .slice()
+                .sort((a, b) =>
+                  accountsSort === 'recent'
+                    ? compareByLastTouch(a, b)
+                    : a.name.localeCompare(b.name),
+                );
               return (
                 <>
                   <Text style={styles.modalTitle}>{isPick ? 'Link an account' : 'Accounts'}</Text>
@@ -1215,7 +1206,7 @@ export function MainScreen() {
                       </Text>
                     </Pressable>
                   </View>
-                  <LastTouchChips value={accountsLastTouch} onChange={setAccountsLastTouch} />
+                  <SortToggle value={accountsSort} onChange={setAccountsSort} />
                   <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
                     {visibleAccounts.length === 0 && (
                       <Text style={styles.empty}>No matches</Text>
@@ -1293,7 +1284,12 @@ export function MainScreen() {
                     (c.accountName ?? '').toLowerCase().includes(q)
                   );
                 })
-                .filter((c) => matchesLastTouch(c.lastInteraction, today, contactsLastTouch));
+                .slice()
+                .sort((a, b) =>
+                  contactsSort === 'recent'
+                    ? compareByLastTouch(a, b)
+                    : a.name.localeCompare(b.name),
+                );
               return (
                 <>
                   <Text style={styles.modalTitle}>{title}</Text>
@@ -1330,7 +1326,7 @@ export function MainScreen() {
                       </Pressable>
                     )}
                   </View>
-                  <LastTouchChips value={contactsLastTouch} onChange={setContactsLastTouch} />
+                  <SortToggle value={contactsSort} onChange={setContactsSort} />
                   <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
                     {visibleContacts.length === 0 && (
                       <Text style={styles.empty}>No matches</Text>
@@ -1785,32 +1781,25 @@ function LogEditPanel(props: {
   );
 }
 
-function LastTouchChips(props: {
-  value: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never';
-  onChange: (v: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never') => void;
+function SortToggle(props: {
+  value: 'alpha' | 'recent';
+  onChange: (v: 'alpha' | 'recent') => void;
 }) {
-  const opts: { key: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never'; label: string }[] = [
-    { key: 'any',    label: 'Any' },
-    { key: 'week',   label: 'This wk' },
-    { key: 'month',  label: 'This mo' },
-    { key: 'stale3', label: '3+ mo' },
-    { key: 'stale6', label: '6+ mo' },
-    { key: 'never',  label: 'Never' },
-  ];
   return (
-    <View style={styles.lastTouchRow}>
-      {opts.map((o) => {
-        const active = props.value === o.key;
-        return (
-          <Pressable
-            key={o.key}
-            style={[styles.filterChip, active && styles.filterChipActive]}
-            onPress={() => props.onChange(o.key)}
-          >
-            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{o.label}</Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.sortRow}>
+      <Text style={styles.sortLabel}>Sort:</Text>
+      <Pressable
+        style={[styles.sortBtn, props.value === 'alpha' && styles.sortBtnActive]}
+        onPress={() => props.onChange('alpha')}
+      >
+        <Text style={[styles.sortBtnText, props.value === 'alpha' && styles.sortBtnTextActive]}>Alphabetical</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.sortBtn, props.value === 'recent' && styles.sortBtnActive]}
+        onPress={() => props.onChange('recent')}
+      >
+        <Text style={[styles.sortBtnText, props.value === 'recent' && styles.sortBtnTextActive]}>Last touch</Text>
+      </Pressable>
     </View>
   );
 }
@@ -2517,12 +2506,38 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontWeight: typography.weight.regular,
   },
-  lastTouchRow: {
+  sortRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing[1.5],
+    alignItems: 'center',
+    gap: spacing[2],
     paddingHorizontal: spacing[3],
     paddingBottom: spacing[2],
+  },
+  sortLabel: {
+    fontSize: typography.size.xs,
+    color: colors.text.secondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sortBtn: {
+    paddingHorizontal: spacing[2.5],
+    paddingVertical: spacing[1] + 2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.bg.surface,
+  },
+  sortBtnActive: {
+    borderColor: colors.interactive.primary,
+    backgroundColor: colors.interactive.primary,
+  },
+  sortBtnText: {
+    fontSize: typography.size.sm,
+    color: colors.text.primary,
+  },
+  sortBtnTextActive: {
+    color: '#fff',
+    fontWeight: typography.weight.semibold,
   },
   filterChip: {
     paddingHorizontal: spacing[3],
