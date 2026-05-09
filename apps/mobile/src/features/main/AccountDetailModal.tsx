@@ -5,6 +5,7 @@ import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
 import { logError } from '../../utils/debug';
 import { formatPhone, isValidPhone } from '../../utils/validation';
+import { isVisibleEventDate } from '../../utils/dateCutoff';
 import { Button } from '../../components/ui';
 import type { Account } from '@brybo/shared';
 import { today as todayIso } from '@brybo/shared';
@@ -100,6 +101,8 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
     draft.name.trim().length > 0 && !!activeUserId && !phoneError && dirty;
 
   // Sales totals — derived from events linked to this account.
+  // Intentionally aggregates the full event history (no display-cutoff filter):
+  // these totals span all years and are the spec's carve-out for the cutoff rule.
   const totalSales = useMemo(() => {
     if (!existing) return 0;
     const eventIds = new Set(
@@ -127,7 +130,8 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         date: dayDateById.get(e.day_id) ?? '',
         notes: e.notes ?? '',
         amount: e.amount,
-      }));
+      }))
+      .filter((e) => isVisibleEventDate(e.date));
     const todayStr = todayIso();
     const upcoming = projected
       .filter((e) => e.date && e.date >= todayStr)
