@@ -317,7 +317,9 @@ export function ContactDetailModal({ visible, contactId, linkToAccountId, onClos
                   onPress={() => onOpenAccount?.(linkedAccount.id)}
                 >
                   <Text style={styles.savedType}>🏢</Text>
-                  <Text style={styles.savedValue} numberOfLines={1}>{linkedAccount.name}</Text>
+                  <View style={styles.savedValueWrap}>
+                    <Text style={styles.savedValue} numberOfLines={1}>{linkedAccount.name}</Text>
+                  </View>
                   <Pressable
                     style={styles.removeBtn}
                     hitSlop={8}
