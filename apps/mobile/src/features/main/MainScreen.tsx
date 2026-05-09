@@ -751,7 +751,6 @@ export function MainScreen() {
                   contacts={contacts}
                   onPress={() => tapLogRow(entry)}
                   onToggleStatus={() => toggleEntryStatus(entry.id)}
-                  onFollowUp={() => startFollowUp(entry)}
                   showDivider={idx > 0}
                 />
                 {isBeingEdited && (
@@ -1320,7 +1319,6 @@ function LogRow(props: {
   contacts: Contact[];
   onPress: () => void;
   onToggleStatus: () => void;
-  onFollowUp: () => void;
   showDivider: boolean;
 }) {
   const { entry } = props;
@@ -1375,13 +1373,13 @@ function LogRow(props: {
         )}
       </View>
       <Pressable
-        style={styles.followUpBtn}
-        onPress={(e) => { e.stopPropagation(); props.onFollowUp(); }}
+        style={styles.kebabBtn}
+        onPress={(e) => { e.stopPropagation(); props.onPress(); }}
         hitSlop={10}
         accessibilityRole="button"
-        accessibilityLabel="Add follow-up"
+        accessibilityLabel="Open row menu"
       >
-        <Text style={styles.followUpBtnText}>➤</Text>
+        <Text style={styles.kebabBtnText}>⋯</Text>
       </Pressable>
     </Pressable>
   );
@@ -1907,20 +1905,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.status.customerBg,
   },
   contPillText: { color: colors.status.customerText, fontSize: typography.size.xs },
-  followUpBtn: {
+  kebabBtn: {
     width: 36,
     height: 36,
     borderRadius: radius.full,
-    backgroundColor: colors.bg.surface,
-    borderWidth: 0.5,
-    borderColor: colors.border.default,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: -2,
   },
-  followUpBtnText: {
-    color: colors.text.link,
-    fontSize: typography.size.sm,
+  kebabBtnText: {
+    color: colors.text.secondary,
+    fontSize: typography.size.lg,
     fontWeight: typography.weight.semibold,
   },
 
