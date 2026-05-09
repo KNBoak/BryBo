@@ -177,6 +177,11 @@ function compareByNextEvent<T extends { nextEvent: string | null }>(a: T, b: T):
   return a.nextEvent.localeCompare(b.nextEvent);
 }
 
+function formatShortDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function relativeDay(iso: string, todayIso: string) {
   const a = new Date(iso + 'T00:00:00').getTime();
   const b = new Date(todayIso + 'T00:00:00').getTime();
@@ -890,6 +895,24 @@ export function MainScreen() {
           );
         };
 
+        const sourceEvent = (() => {
+          const ev = storeEvents.find((e) => e.id === entry.id);
+          if (!ev || !ev.source_event_id) return null;
+          const src = storeEvents.find((e) => e.id === ev.source_event_id);
+          if (!src || src.is_cancelled) return null;
+          const day = storeDays.find((d) => d.id === src.day_id);
+          return day ? { event: src, date: day.date } : null;
+        })();
+
+        const followUps = storeEvents
+          .filter((e) => e.source_event_id === entry.id && !e.is_cancelled)
+          .map((e) => {
+            const day = storeDays.find((d) => d.id === e.day_id);
+            return day ? { event: e, date: day.date } : null;
+          })
+          .filter((x): x is { event: typeof storeEvents[number]; date: string } => x !== null)
+          .sort((a, b) => a.date.localeCompare(b.date));
+
         const actions: RowAction[] = [
           {
             key: 'edit',
@@ -919,6 +942,31 @@ export function MainScreen() {
         ];
 
         const groups: RowActionGroup[] = [];
+
+        const relatedItems: RowAction[] = [];
+        if (sourceEvent) {
+          relatedItems.push({
+            key: `source-${sourceEvent.event.id}`,
+            icon: '↩️',
+            label: `View original (${formatShortDate(sourceEvent.date)})`,
+            onPress: () => { setViewDate(sourceEvent.date); closeModal(); },
+          });
+        }
+        for (const fu of followUps) {
+          const labelText = fu.event.notes && fu.event.notes.trim().length > 0
+            ? `${formatShortDate(fu.date)} — ${fu.event.notes.trim()}`
+            : `View follow-up (${formatShortDate(fu.date)})`;
+          relatedItems.push({
+            key: `followup-${fu.event.id}`,
+            icon: '➤',
+            label: labelText,
+            onPress: () => { setViewDate(fu.date); closeModal(); },
+          });
+        }
+        if (relatedItems.length > 0) {
+          groups.push({ label: 'Related', items: relatedItems });
+        }
+
         if (linkedAccts.length > 0) {
           groups.push({
             label: 'Accounts',
