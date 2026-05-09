@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Alert, Linking, Platform } from 'react-native';
+import * as Location from 'expo-location';
 import { colors, spacing, radius, typography } from '../../theme';
 import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
@@ -534,18 +535,92 @@ function AddressesEditor(props: {
   const [draftLabel, setDraftLabel] = useState('');
   const [draftValue, setDraftValue] = useState('');
 
-  const reset = () => { setAdding(false); setDraftLabel(''); setDraftValue(''); };
+  type Suggestion = { label: string; latitude: number; longitude: number };
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const pendingCoordsRef = useRef<{ lat: number; lng: number; label: string } | null>(null);
+
+  useEffect(() => {
+    const q = draftValue.trim();
+    if (q.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const fwd = await Location.geocodeAsync(q);
+        if (cancelled) return;
+        const top = fwd.slice(0, 3);
+        const results = await Promise.all(
+          top.map(async (p) => {
+            try {
+              const rev = await Location.reverseGeocodeAsync({
+                latitude: p.latitude,
+                longitude: p.longitude,
+              });
+              const r = rev[0];
+              if (!r) return null;
+              const parts = [
+                r.streetNumber && r.street ? `${r.streetNumber} ${r.street}` : (r.street ?? r.name ?? ''),
+                r.city ?? r.subregion ?? '',
+                r.region ?? '',
+                r.postalCode ?? '',
+                r.country ?? '',
+              ].map((s) => s.trim()).filter((s) => s.length > 0);
+              const label = parts.join(', ');
+              if (!label) return null;
+              return { label, latitude: p.latitude, longitude: p.longitude } as Suggestion;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        if (cancelled) return;
+        // Dedupe by label.
+        const seen = new Set<string>();
+        const deduped: Suggestion[] = [];
+        for (const r of results) {
+          if (!r) continue;
+          if (seen.has(r.label)) continue;
+          seen.add(r.label);
+          deduped.push(r);
+        }
+        setSuggestions(deduped);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setSuggestLoading(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [draftValue]);
+
+  const reset = () => {
+    setAdding(false);
+    setDraftLabel('');
+    setDraftValue('');
+    setSuggestions([]);
+    pendingCoordsRef.current = null;
+  };
   const canSaveAdd = draftValue.trim().length > 0;
 
   const saveAdd = () => {
     if (!canSaveAdd) return;
+    const trimmed = draftValue.trim();
+    const pending = pendingCoordsRef.current;
+    const useCoords = pending && pending.label === trimmed ? pending : null;
     const next: AccountAddress = {
       id: generateId(),
       label: draftLabel.trim() || null,
-      address: draftValue.trim(),
+      address: trimmed,
       is_primary: addresses.length === 0,
-      latitude: null,
-      longitude: null,
+      latitude: useCoords?.lat ?? null,
+      longitude: useCoords?.lng ?? null,
     };
     onChange([...addresses, next]);
     reset();
@@ -630,6 +705,28 @@ function AddressesEditor(props: {
             onChange={setDraftValue}
             placeholder="123 Main St, Kitchener, ON"
           />
+          {suggestLoading || suggestions.length > 0 ? (
+            <View style={addrStyles.suggestList}>
+              {suggestLoading && suggestions.length === 0 ? (
+                <Text style={addrStyles.suggestLoading}>Searching…</Text>
+              ) : null}
+              {suggestions.map((s, i) => (
+                <Pressable
+                  key={`${s.label}-${i}`}
+                  style={addrStyles.suggestRow}
+                  onPress={() => {
+                    setDraftValue(s.label);
+                    // Stash lat/lng so saveAdd can attach them.
+                    pendingCoordsRef.current = { lat: s.latitude, lng: s.longitude, label: s.label };
+                    setSuggestions([]);
+                  }}
+                >
+                  <Text style={addrStyles.suggestPin}>📍</Text>
+                  <Text style={addrStyles.suggestText} numberOfLines={2}>{s.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
           <View style={addrStyles.addRow}>
             <Pressable style={addrStyles.cancelBtn} onPress={reset}>
               <Text style={addrStyles.cancelBtnText}>Cancel</Text>
@@ -755,6 +852,34 @@ const addrStyles = StyleSheet.create({
   },
   saveBtnTextDisabled: {
     color: colors.text.disabled,
+  },
+  suggestList: {
+    backgroundColor: colors.bg.surface,
+    borderWidth: 0.5,
+    borderColor: colors.border.muted,
+    borderRadius: radius.sm,
+    paddingVertical: spacing[1],
+  },
+  suggestLoading: {
+    fontSize: typography.size.xs,
+    color: colors.text.secondary,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+  },
+  suggestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+  },
+  suggestPin: {
+    fontSize: typography.size.base,
+  },
+  suggestText: {
+    flex: 1,
+    fontSize: typography.size.sm,
+    color: colors.text.primary,
   },
 });
 
