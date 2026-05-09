@@ -161,6 +161,28 @@ function formatDateLong(iso: string) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
+function matchesLastTouch(
+  lastInteractionIso: string | null,
+  todayIso: string,
+  filter: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never',
+): boolean {
+  if (filter === 'any') return true;
+  if (filter === 'never') return lastInteractionIso == null;
+  if (lastInteractionIso == null) {
+    return filter === 'stale3' || filter === 'stale6';
+  }
+  const daysSince = Math.floor(
+    (new Date(todayIso + 'T00:00:00').getTime() -
+      new Date(lastInteractionIso + 'T00:00:00').getTime()) /
+      86_400_000,
+  );
+  if (filter === 'week') return daysSince <= 7;
+  if (filter === 'month') return daysSince <= 30;
+  if (filter === 'stale3') return daysSince >= 90;
+  if (filter === 'stale6') return daysSince >= 180;
+  return true;
+}
+
 function relativeDay(iso: string, todayIso: string) {
   const a = new Date(iso + 'T00:00:00').getTime();
   const b = new Date(todayIso + 'T00:00:00').getTime();
@@ -325,6 +347,9 @@ export function MainScreen() {
   const [accountsProspectsOnly, setAccountsProspectsOnly] = useState(false);
   const [accountsSearch, setAccountsSearch] = useState('');
   const [contactsSearch, setContactsSearch] = useState('');
+  type LastTouchFilter = 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never';
+  const [accountsLastTouch, setAccountsLastTouch] = useState<LastTouchFilter>('any');
+  const [contactsLastTouch, setContactsLastTouch] = useState<LastTouchFilter>('any');
 
   // Modal state — single discriminated union keeps things simple.
   // 'mode' on the list modals: 'browse' opens detail on tap; 'pick' selects into editing.
@@ -351,8 +376,14 @@ export function MainScreen() {
   // Reset list-modal search inputs whenever those modals close so the next
   // open starts fresh.
   React.useEffect(() => {
-    if (modal.kind !== 'accounts-list') setAccountsSearch('');
-    if (modal.kind !== 'contacts-list') setContactsSearch('');
+    if (modal.kind !== 'accounts-list') {
+      setAccountsSearch('');
+      setAccountsLastTouch('any');
+    }
+    if (modal.kind !== 'contacts-list') {
+      setContactsSearch('');
+      setContactsLastTouch('any');
+    }
   }, [modal.kind]);
 
   function selectAccountIntoEditing(id: string) {
@@ -1152,7 +1183,8 @@ export function MainScreen() {
                     a.name.toLowerCase().includes(q) ||
                     (a.city ?? '').toLowerCase().includes(q)
                   );
-                });
+                })
+                .filter((a) => matchesLastTouch(a.lastInteraction, today, accountsLastTouch));
               return (
                 <>
                   <Text style={styles.modalTitle}>{isPick ? 'Link an account' : 'Accounts'}</Text>
@@ -1183,6 +1215,7 @@ export function MainScreen() {
                       </Text>
                     </Pressable>
                   </View>
+                  <LastTouchChips value={accountsLastTouch} onChange={setAccountsLastTouch} />
                   <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
                     {visibleAccounts.length === 0 && (
                       <Text style={styles.empty}>No matches</Text>
@@ -1252,13 +1285,15 @@ export function MainScreen() {
               const linkAccountId = isLink ? modal.accountId ?? null : null;
               const title = isPick ? 'Link a contact' : isLink ? 'Add a contact to this account' : 'Contacts';
               const q = contactsSearch.trim().toLowerCase();
-              const visibleContacts = q
-                ? contacts.filter(
-                    (c) =>
-                      c.name.toLowerCase().includes(q) ||
-                      (c.accountName ?? '').toLowerCase().includes(q),
-                  )
-                : contacts;
+              const visibleContacts = contacts
+                .filter((c) => {
+                  if (!q) return true;
+                  return (
+                    c.name.toLowerCase().includes(q) ||
+                    (c.accountName ?? '').toLowerCase().includes(q)
+                  );
+                })
+                .filter((c) => matchesLastTouch(c.lastInteraction, today, contactsLastTouch));
               return (
                 <>
                   <Text style={styles.modalTitle}>{title}</Text>
@@ -1295,6 +1330,7 @@ export function MainScreen() {
                       </Pressable>
                     )}
                   </View>
+                  <LastTouchChips value={contactsLastTouch} onChange={setContactsLastTouch} />
                   <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
                     {visibleContacts.length === 0 && (
                       <Text style={styles.empty}>No matches</Text>
@@ -1745,6 +1781,36 @@ function LogEditPanel(props: {
           disabled={!canSave}
         />
       </View>
+    </View>
+  );
+}
+
+function LastTouchChips(props: {
+  value: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never';
+  onChange: (v: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never') => void;
+}) {
+  const opts: { key: 'any' | 'week' | 'month' | 'stale3' | 'stale6' | 'never'; label: string }[] = [
+    { key: 'any',    label: 'Any' },
+    { key: 'week',   label: 'This wk' },
+    { key: 'month',  label: 'This mo' },
+    { key: 'stale3', label: '3+ mo' },
+    { key: 'stale6', label: '6+ mo' },
+    { key: 'never',  label: 'Never' },
+  ];
+  return (
+    <View style={styles.lastTouchRow}>
+      {opts.map((o) => {
+        const active = props.value === o.key;
+        return (
+          <Pressable
+            key={o.key}
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            onPress={() => props.onChange(o.key)}
+          >
+            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -2450,6 +2516,13 @@ const styles = StyleSheet.create({
     fontSize: typography.size.xs,
     color: colors.text.secondary,
     fontWeight: typography.weight.regular,
+  },
+  lastTouchRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[1.5],
+    paddingHorizontal: spacing[3],
+    paddingBottom: spacing[2],
   },
   filterChip: {
     paddingHorizontal: spacing[3],
