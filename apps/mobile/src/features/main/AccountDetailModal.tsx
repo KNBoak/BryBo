@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Alert, Linking, Platform } from 'react-native';
 import { colors, spacing, radius, typography } from '../../theme';
 import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
@@ -265,6 +265,11 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
 
             <Field label="Name *" value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} />
 
+            <AddressesEditor
+              addresses={draft.addresses}
+              onChange={(next) => setDraft({ ...draft, addresses: next })}
+            />
+
             <Pressable style={styles.expandToggle} onPress={() => setExpanded((v) => !v)}>
               <Text style={styles.expandToggleText}>
                 {expanded ? '▾ Hide details' : '▸ More details (phone, website…)'}
@@ -469,9 +474,10 @@ interface FieldProps {
   keyboardType?: 'default' | 'phone-pad' | 'email-address';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   error?: string | null;
+  placeholder?: string;
 }
 
-function Field({ label, value, onChange, multiline, keyboardType, autoCapitalize, error }: FieldProps) {
+function Field({ label, value, onChange, multiline, keyboardType, autoCapitalize, error, placeholder }: FieldProps) {
   return (
     <View style={fieldStyles.wrap}>
       <Text style={fieldStyles.label}>{label}</Text>
@@ -482,6 +488,7 @@ function Field({ label, value, onChange, multiline, keyboardType, autoCapitalize
         multiline={multiline}
         keyboardType={keyboardType ?? 'default'}
         autoCapitalize={autoCapitalize ?? 'sentences'}
+        placeholder={placeholder}
         placeholderTextColor={colors.form.inputPlaceholder}
       />
       {error ? <Text style={fieldStyles.err}>{error}</Text> : null}
@@ -515,6 +522,239 @@ const fieldStyles = StyleSheet.create({
     fontSize: typography.size.xs,
     color: colors.text.danger,
     marginTop: 2,
+  },
+});
+
+function AddressesEditor(props: {
+  addresses: AccountAddress[];
+  onChange: (next: AccountAddress[]) => void;
+}) {
+  const { addresses, onChange } = props;
+  const [adding, setAdding] = useState(false);
+  const [draftLabel, setDraftLabel] = useState('');
+  const [draftValue, setDraftValue] = useState('');
+
+  const reset = () => { setAdding(false); setDraftLabel(''); setDraftValue(''); };
+  const canSaveAdd = draftValue.trim().length > 0;
+
+  const saveAdd = () => {
+    if (!canSaveAdd) return;
+    const next: AccountAddress = {
+      id: generateId(),
+      label: draftLabel.trim() || null,
+      address: draftValue.trim(),
+      is_primary: addresses.length === 0,
+      latitude: null,
+      longitude: null,
+    };
+    onChange([...addresses, next]);
+    reset();
+  };
+
+  const removeAt = (id: string) => {
+    onChange(addresses.filter((a) => a.id !== id));
+  };
+
+  const openInMaps = async (address: string) => {
+    const q = encodeURIComponent(address);
+    const url = Platform.select({
+      ios: `maps://?q=${q}`,
+      android: `geo:0,0?q=${q}`,
+      default: `https://www.google.com/maps/search/?api=1&query=${q}`,
+    })!;
+    const canOpen = await Linking.canOpenURL(url).catch(() => false);
+    if (!canOpen) {
+      // Fall back to a universal URL on devices without a native maps app.
+      const fallback = `https://www.google.com/maps/search/?api=1&query=${q}`;
+      const fbOk = await Linking.canOpenURL(fallback).catch(() => false);
+      if (!fbOk) {
+        Alert.alert('No map app', 'Could not open this address — no map app is available.');
+        return;
+      }
+      await Linking.openURL(fallback).catch(() => {
+        Alert.alert('Could not open address', 'The map app rejected the request.');
+      });
+      return;
+    }
+    await Linking.openURL(url).catch(() => {
+      Alert.alert('Could not open address', 'The map app rejected the request.');
+    });
+  };
+
+  return (
+    <View style={fieldStyles.wrap}>
+      <Text style={fieldStyles.label}>Addresses</Text>
+
+      {addresses.length === 0 && !adding ? (
+        <Text style={addrStyles.empty}>No addresses yet.</Text>
+      ) : null}
+
+      {addresses.map((a) => (
+        <View key={a.id} style={addrStyles.row}>
+          <Pressable
+            style={addrStyles.openBtn}
+            hitSlop={8}
+            onPress={() => openInMaps(a.address)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${a.address} in maps`}
+          >
+            <Text style={addrStyles.openBtnText}>📍</Text>
+          </Pressable>
+          <View style={addrStyles.body}>
+            {a.label ? <Text style={addrStyles.label}>{a.label}</Text> : null}
+            <Text style={addrStyles.value} numberOfLines={2}>{a.address}</Text>
+          </View>
+          <Pressable
+            style={addrStyles.removeBtn}
+            hitSlop={8}
+            onPress={() => removeAt(a.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Remove address"
+          >
+            <Text style={addrStyles.removeBtnText}>×</Text>
+          </Pressable>
+        </View>
+      ))}
+
+      {adding ? (
+        <View style={addrStyles.addBlock}>
+          <Field
+            label="Label (optional)"
+            value={draftLabel}
+            onChange={setDraftLabel}
+            placeholder="Head office"
+          />
+          <Field
+            label="Address"
+            value={draftValue}
+            onChange={setDraftValue}
+            placeholder="123 Main St, Kitchener, ON"
+          />
+          <View style={addrStyles.addRow}>
+            <Pressable style={addrStyles.cancelBtn} onPress={reset}>
+              <Text style={addrStyles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[addrStyles.saveBtn, !canSaveAdd && addrStyles.saveBtnDisabled]}
+              disabled={!canSaveAdd}
+              onPress={saveAdd}
+            >
+              <Text style={[addrStyles.saveBtnText, !canSaveAdd && addrStyles.saveBtnTextDisabled]}>
+                Add
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <Pressable style={addrStyles.addPill} onPress={() => setAdding(true)}>
+          <Text style={addrStyles.addPillText}>+ Add address</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+const addrStyles = StyleSheet.create({
+  empty: {
+    fontSize: typography.size.sm,
+    color: colors.text.disabled,
+    paddingHorizontal: spacing[1],
+    paddingVertical: spacing[2],
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderWidth: 0.5,
+    borderColor: colors.border.muted,
+    borderRadius: radius.sm,
+    backgroundColor: colors.bg.surface,
+    marginTop: spacing[1] + 2,
+  },
+  openBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.status.todayBg,
+  },
+  openBtnText: {
+    fontSize: typography.size.base,
+  },
+  body: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  label: {
+    fontSize: typography.size.xs,
+    color: colors.text.secondary,
+    fontWeight: typography.weight.medium,
+  },
+  value: {
+    fontSize: typography.size.sm,
+    color: colors.text.primary,
+  },
+  removeBtn: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeBtnText: {
+    color: colors.text.secondary,
+    fontSize: 18,
+  },
+  addPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1] + 2,
+    borderRadius: radius.full,
+    backgroundColor: colors.bg.surface,
+    borderWidth: 0.5,
+    borderColor: colors.border.default,
+    marginTop: spacing[2],
+  },
+  addPillText: {
+    color: colors.text.link,
+    fontSize: typography.size.xs,
+  },
+  addBlock: {
+    marginTop: spacing[2],
+    gap: spacing[2],
+  },
+  addRow: {
+    flexDirection: 'row',
+    gap: spacing[2],
+    justifyContent: 'flex-end',
+  },
+  cancelBtn: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+  },
+  cancelBtnText: {
+    color: colors.text.secondary,
+    fontSize: typography.size.sm,
+  },
+  saveBtn: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: radius.full,
+    backgroundColor: colors.interactive.primary,
+  },
+  saveBtnDisabled: {
+    backgroundColor: colors.bg.raised,
+  },
+  saveBtnText: {
+    color: '#fff',
+    fontSize: typography.size.sm,
+    fontWeight: typography.weight.semibold,
+  },
+  saveBtnTextDisabled: {
+    color: colors.text.disabled,
   },
 });
 
