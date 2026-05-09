@@ -23,13 +23,30 @@ export interface Day {
   updated_at: string;
 }
 
+/**
+ * A labeled mailing/site address attached to an Account. An account can have
+ * multiple (e.g., "Head office", "Warehouse"). Addresses are stored inline
+ * on the Account record (not a separate join table).
+ */
+export interface AccountAddress {
+  id: string;
+  /** Freeform identifier shown next to the address. e.g., "Head office". */
+  label: string | null;
+  /** Full address as a single human-readable string. */
+  address: string;
+  is_primary: boolean;
+  /** Optional geocoded coordinates (set when picked from a map suggestion). */
+  latitude: number | null;
+  longitude: number | null;
+}
+
 export interface Account {
   id: string;
   user_id: string;
   name: string;
   city: string | null;
   state: string | null;
-  address: string | null;
+  addresses: AccountAddress[];
   phone: string | null;
   website: string | null;
   notes: string | null;

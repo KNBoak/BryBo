@@ -383,7 +383,7 @@ export async function seedAlMarIfMissing(): Promise<boolean> {
         name,
         city: null,
         state: null,
-        address: null,
+        addresses: [],
         phone: null,
         website: null,
         notes: null,

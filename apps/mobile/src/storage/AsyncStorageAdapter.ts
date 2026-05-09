@@ -8,6 +8,7 @@ import type {
   User,
   Day,
   Account,
+  AccountAddress,
   Contact,
   ContactMethod,
   Event,
@@ -42,10 +43,24 @@ async function writeArray<T>(key: string, data: T[]): Promise<void> {
 
 function normalizeAccount(a: Account): Account {
   // Default newly added optional-on-disk fields so the runtime contract
-  // matches the type when reading older snapshots.
+  // matches the type when reading older snapshots. Also migrates the legacy
+  // single `address: string | null` field into the new `addresses` array.
+  const legacy = a as unknown as { address?: string | null };
+  let addresses = a.addresses ?? [];
+  if (addresses.length === 0 && legacy.address && legacy.address.trim().length > 0) {
+    addresses = [{
+      id: `legacy-${a.id}`,
+      label: null,
+      address: legacy.address.trim(),
+      is_primary: true,
+      latitude: null,
+      longitude: null,
+    }] satisfies AccountAddress[];
+  }
   return {
     ...a,
     primary_contact_id: a.primary_contact_id ?? null,
+    addresses,
   };
 }
 

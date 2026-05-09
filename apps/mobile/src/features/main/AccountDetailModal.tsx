@@ -7,7 +7,7 @@ import { logError } from '../../utils/debug';
 import { formatPhone, isValidPhone } from '../../utils/validation';
 import { isVisibleEventDate } from '../../utils/dateCutoff';
 import { Button } from '../../components/ui';
-import type { Account } from '@brybo/shared';
+import type { Account, AccountAddress } from '@brybo/shared';
 import { today as todayIso } from '@brybo/shared';
 
 interface Props {
@@ -27,7 +27,7 @@ const EMPTY_DRAFT = {
   name: '',
   city: '',
   state: '',
-  address: '',
+  addresses: [] as AccountAddress[],
   phone: '',
   website: '',
   notes: '',
@@ -71,7 +71,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         name: existing.name,
         city: existing.city ?? '',
         state: existing.state ?? '',
-        address: existing.address ?? '',
+        addresses: existing.addresses ?? [],
         phone: existing.phone ?? '',
         website: existing.website ?? '',
         notes: existing.notes ?? '',
@@ -87,7 +87,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
       name: existing.name,
       city: existing.city ?? '',
       state: existing.state ?? '',
-      address: existing.address ?? '',
+      addresses: existing.addresses ?? [],
       phone: existing.phone ?? '',
       website: existing.website ?? '',
       notes: existing.notes ?? '',
@@ -173,7 +173,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         name: draft.name.trim(),
         city: draft.city.trim() || null,
         state: draft.state.trim() || null,
-        address: draft.address.trim() || null,
+        addresses: draft.addresses,
         phone: draft.phone.trim() || null,
         website: draft.website.trim() || null,
         notes: draft.notes.trim() || null,
@@ -267,7 +267,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
 
             <Pressable style={styles.expandToggle} onPress={() => setExpanded((v) => !v)}>
               <Text style={styles.expandToggleText}>
-                {expanded ? '▾ Hide details' : '▸ More details (address, phone, website…)'}
+                {expanded ? '▾ Hide details' : '▸ More details (phone, website…)'}
               </Text>
             </Pressable>
 
@@ -275,7 +275,6 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
               <>
                 <Field label="City" value={draft.city} onChange={(v) => setDraft({ ...draft, city: v })} />
                 <Field label="State / Province" value={draft.state} onChange={(v) => setDraft({ ...draft, state: v })} />
-                <Field label="Address" value={draft.address} onChange={(v) => setDraft({ ...draft, address: v })} />
                 <Field
                   label="Phone"
                   value={draft.phone}
