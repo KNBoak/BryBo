@@ -32,6 +32,7 @@ const EMPTY_DRAFT = {
   website: '',
   notes: '',
   is_prospect: true,
+  primary_contact_id: null as string | null,
 };
 
 export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpenContact, onAddContact, onOpenDay, onAddEvent }: Props) {
@@ -75,6 +76,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         website: existing.website ?? '',
         notes: existing.notes ?? '',
         is_prospect: existing.is_prospect ?? true,
+        primary_contact_id: existing.primary_contact_id ?? null,
       });
     }
   }, [visible, isNew, existing?.id]);
@@ -90,6 +92,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
       website: existing.website ?? '',
       notes: existing.notes ?? '',
       is_prospect: existing.is_prospect ?? true,
+      primary_contact_id: existing.primary_contact_id ?? null,
     };
     return EMPTY_DRAFT;
   }, [existing]);
@@ -175,7 +178,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         website: draft.website.trim() || null,
         notes: draft.notes.trim() || null,
         is_prospect: draft.is_prospect,
-        primary_contact_id: existing?.primary_contact_id ?? null,
+        primary_contact_id: draft.primary_contact_id,
         created_at: existing?.created_at ?? now,
         updated_at: now,
       };
@@ -313,6 +316,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
                       (m) => m.contact_id === c.id && m.type === 'cell',
                     );
                     const fullName = `${c.first_name} ${c.last_name}`.trim() || '—';
+                    const isPrimary = draft.primary_contact_id === c.id;
                     return (
                       <Pressable
                         key={c.id}
@@ -322,6 +326,21 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
                         <Text style={styles.contactIcon}>👤</Text>
                         <Text style={styles.contactName} numberOfLines={1}>{fullName}</Text>
                         {cell ? <Text style={styles.contactCell}>{cell.value}</Text> : null}
+                        <Pressable
+                          style={[styles.primaryStar, isPrimary && styles.primaryStarActive]}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={isPrimary ? 'Unmark as primary contact' : 'Mark as primary contact'}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            setDraft({
+                              ...draft,
+                              primary_contact_id: isPrimary ? null : c.id,
+                            });
+                          }}
+                        >
+                          <Text style={[styles.primaryStarText, isPrimary && styles.primaryStarTextActive]}>★</Text>
+                        </Pressable>
                       </Pressable>
                     );
                   });
@@ -614,6 +633,23 @@ const styles = StyleSheet.create({
   contactCell: {
     fontSize: typography.size.xs,
     color: colors.text.secondary,
+  },
+  primaryStar: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryStarActive: {
+    backgroundColor: colors.status.todayBg,
+  },
+  primaryStarText: {
+    color: colors.text.disabled,
+    fontSize: typography.size.base,
+  },
+  primaryStarTextActive: {
+    color: colors.status.todayText,
   },
   addContactBtn: {
     alignSelf: 'flex-start',
