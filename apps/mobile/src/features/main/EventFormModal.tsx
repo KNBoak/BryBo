@@ -4,6 +4,7 @@ import { colors, spacing, radius, typography } from '../../theme';
 import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
 import { logError } from '../../utils/debug';
+import { formatUSD } from '../../utils/format';
 import { Button } from '../../components/ui';
 import { CalendarModal } from './CalendarModal';
 import { EntityPickerModal, type PickerItem } from './EntityPickerModal';
@@ -169,13 +170,19 @@ export function EventFormModal({ visible, initial, onClose, onSaved }: Props) {
         await upsertDay(day);
       }
 
+      const trimmedNotes = notes.trim();
+      const finalNotes =
+        hasAmount && trimmedNotes === ''
+          ? `sale: ${formatUSD(parsedAmount)}`
+          : trimmedNotes || null;
+
       const event: StoreEvent = {
         id: generateId(),
         user_id: activeUserId,
         day_id: day.id,
         type: hasAmount ? 'sale' : type,
         status,
-        notes: notes.trim() || null,
+        notes: finalNotes,
         amount: hasAmount ? parsedAmount : null,
         is_cancelled: false,
         created_at: now,
