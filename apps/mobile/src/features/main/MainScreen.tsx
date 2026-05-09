@@ -88,6 +88,7 @@ import { ImportContactsModal } from './ImportContactsModal';
 import { AiSettingsModal } from './AiSettingsModal';
 import { EventFormModal, type EventFormInitial } from './EventFormModal';
 import { FollowUpModal, type FollowUpSource } from './FollowUpModal';
+import { MoveEventModal, type MoveEventSource } from './MoveEventModal';
 import { buildDayContext } from './aiContext';
 import { runAiAssist, AiAuthError, AiRateLimitError, AiNetworkError, AiServerError } from './aiCall';
 import { getApiKey } from '../../utils/apiKeyStore';
@@ -340,6 +341,7 @@ export function MainScreen() {
     | { kind: 'contact-detail'; contactId: string | null; selectOnSave?: boolean; linkToAccountId?: string; returnToAccountId?: string }
     | { kind: 'event-form'; initial: EventFormInitial; returnToAccountId?: string }
     | { kind: 'follow-up'; source: FollowUpSource }
+    | { kind: 'move-event'; source: MoveEventSource }
   >({ kind: 'none' });
   const closeModal = () => setModal({ kind: 'none' });
 
@@ -526,6 +528,10 @@ export function MainScreen() {
       },
     });
   }
+
+  const startMoveEvent = (entry: LogEntry) => {
+    setModal({ kind: 'move-event', source: { eventId: entry.id, sourceDate: viewDate } });
+  };
 
   async function runAi() {
     if (!activeUserId || !activeProfile) return;
@@ -872,6 +878,12 @@ export function MainScreen() {
             icon: '➤',
             label: 'Follow-up…',
             onPress: () => { closeModal(); startFollowUp(entry); },
+          },
+          {
+            key: 'move',
+            icon: '↔️',
+            label: 'Move to…',
+            onPress: () => { closeModal(); startMoveEvent(entry); },
           },
           {
             key: 'delete',
@@ -1238,6 +1250,13 @@ export function MainScreen() {
         source={modal.kind === 'follow-up' ? modal.source : null}
         onClose={closeModal}
         onNavigateToDate={(date) => { setViewDate(date); closeModal(); }}
+      />
+
+      <MoveEventModal
+        visible={modal.kind === 'move-event'}
+        source={modal.kind === 'move-event' ? modal.source : null}
+        onClose={closeModal}
+        onNavigateToDate={(iso) => { setViewDate(iso); closeModal(); }}
       />
 
     </SafeAreaView>
