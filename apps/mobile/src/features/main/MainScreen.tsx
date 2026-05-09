@@ -361,6 +361,7 @@ export function MainScreen() {
       .filter((e) => {
         if (e.user_id !== activeUserId) return false;
         if (e.is_cancelled) return false;
+        if (e.status === 'done') return false; // only outstanding work in Upcoming
         const date = dayDateById.get(e.day_id);
         if (!date) return false;
         if (!isVisibleEventDate(date)) return false;
@@ -601,12 +602,14 @@ export function MainScreen() {
     setModal({ kind: 'move-event', source: { eventId: entry.id, sourceDate: viewDate } });
   };
 
-  const moveEventToToday = async (eventId: string) => {
+  const moveEventToToday = async (eventId: string, opts?: { markDone?: boolean }) => {
     const ev = storeEvents.find((e) => e.id === eventId);
     if (!ev || !activeUserId) return;
     const todayStr = today;
     const day = storeDays.find((d) => d.id === ev.day_id);
-    if (day && day.date === todayStr) return; // already on today
+    const alreadyOnToday = day?.date === todayStr;
+    const newStatus = opts?.markDone ? 'done' : ev.status;
+    if (alreadyOnToday && newStatus === ev.status) return; // no-op
     const now = new Date().toISOString();
     let todayDay = storeDays.find((d) => d.user_id === activeUserId && d.date === todayStr);
     if (!todayDay) {
@@ -627,7 +630,7 @@ export function MainScreen() {
       .filter((ec) => ec.event_id === ev.id)
       .map((ec) => ec.contact_id);
     await upsertEvent(
-      { ...ev, day_id: todayDay.id, updated_at: now },
+      { ...ev, day_id: todayDay.id, status: newStatus, updated_at: now },
       accountIds,
       contactIds,
     );
@@ -1362,6 +1365,15 @@ export function MainScreen() {
             onPress: () => {
               closeModal();
               moveEventToToday(ev.id);
+            },
+          },
+          {
+            key: 'complete',
+            icon: '✓',
+            label: 'Mark complete',
+            onPress: () => {
+              closeModal();
+              moveEventToToday(ev.id, { markDone: true });
             },
           },
         ];
