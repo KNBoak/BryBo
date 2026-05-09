@@ -340,6 +340,44 @@ export function MainScreen() {
     }));
   }, [storeDays, storeEvents, eventAccounts, eventContacts, activeUserId, viewDate]);
 
+  // Future-dated events (strictly after today), respecting the display cutoff.
+  // Used by the "Upcoming" section on the main screen.
+  const upcoming = useMemo(() => {
+    const todayStr = today;
+    const dayDateById = new Map(storeDays.map((d) => [d.id, d.date]));
+    const accountIdsByEvent = new Map<string, string[]>();
+    for (const ea of eventAccounts) {
+      const arr = accountIdsByEvent.get(ea.event_id) ?? [];
+      arr.push(ea.account_id);
+      accountIdsByEvent.set(ea.event_id, arr);
+    }
+    const contactIdsByEvent = new Map<string, string[]>();
+    for (const ec of eventContacts) {
+      const arr = contactIdsByEvent.get(ec.event_id) ?? [];
+      arr.push(ec.contact_id);
+      contactIdsByEvent.set(ec.event_id, arr);
+    }
+    return storeEvents
+      .filter((e) => {
+        if (e.user_id !== activeUserId) return false;
+        if (e.is_cancelled) return false;
+        const date = dayDateById.get(e.day_id);
+        if (!date) return false;
+        if (!isVisibleEventDate(date)) return false;
+        return date > todayStr; // strictly future
+      })
+      .map((e) => ({
+        id: e.id,
+        date: dayDateById.get(e.day_id)!,
+        notes: e.notes,
+        amount: e.amount,
+        status: e.status,
+        accountIds: accountIdsByEvent.get(e.id) ?? [],
+        contactIds: contactIdsByEvent.get(e.id) ?? [],
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [storeEvents, storeDays, eventAccounts, eventContacts, activeUserId, today]);
+
   // UI state
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [editing, setEditing] = useState<EditingEntry | null>(null);
@@ -358,6 +396,7 @@ export function MainScreen() {
     | { kind: 'none' }
     | { kind: 'calendar' }
     | { kind: 'log-actions'; entryId: string }
+    | { kind: 'upcoming-actions'; eventId: string }
     | { kind: 'accounts-list'; mode: 'browse' | 'pick' }
     | { kind: 'contacts-list'; mode: 'browse' | 'pick' | 'link-to-account'; accountId?: string }
     | { kind: 'contacts-import' }
@@ -560,6 +599,39 @@ export function MainScreen() {
 
   const startMoveEvent = (entry: LogEntry) => {
     setModal({ kind: 'move-event', source: { eventId: entry.id, sourceDate: viewDate } });
+  };
+
+  const moveEventToToday = async (eventId: string) => {
+    const ev = storeEvents.find((e) => e.id === eventId);
+    if (!ev || !activeUserId) return;
+    const todayStr = today;
+    const day = storeDays.find((d) => d.id === ev.day_id);
+    if (day && day.date === todayStr) return; // already on today
+    const now = new Date().toISOString();
+    let todayDay = storeDays.find((d) => d.user_id === activeUserId && d.date === todayStr);
+    if (!todayDay) {
+      todayDay = {
+        id: generateId(),
+        user_id: activeUserId,
+        date: todayStr,
+        notes: null,
+        created_at: now,
+        updated_at: now,
+      } as StoreDay;
+      await upsertDay(todayDay);
+    }
+    const accountIds = eventAccounts
+      .filter((ea) => ea.event_id === ev.id)
+      .map((ea) => ea.account_id);
+    const contactIds = eventContacts
+      .filter((ec) => ec.event_id === ev.id)
+      .map((ec) => ec.contact_id);
+    await upsertEvent(
+      { ...ev, day_id: todayDay.id, updated_at: now },
+      accountIds,
+      contactIds,
+    );
+    setViewDate(todayStr);
   };
 
   async function runAi() {
@@ -846,6 +918,67 @@ export function MainScreen() {
               </Text>
             </View>
           </Pressable>
+        </View>
+
+        {/* ─── UPCOMING EVENTS ────────────────────────────────────── */}
+        <View style={styles.upcomingSection}>
+          <Text style={styles.upcomingTitle}>Upcoming</Text>
+          {upcoming.length === 0 ? (
+            <Text style={styles.upcomingEmpty}>Nothing scheduled.</Text>
+          ) : (
+            upcoming.map((u) => {
+              const linkedAccts = accounts.filter((a) => u.accountIds.includes(a.id));
+              const linkedConts = contacts.filter((c) => u.contactIds.includes(c.id));
+              const text =
+                (u.notes && u.notes.trim().length > 0)
+                  ? u.notes
+                  : (u.amount != null ? '(sale)' : '(no notes)');
+              return (
+                <Pressable
+                  key={u.id}
+                  style={styles.upcomingRow}
+                  onPress={() => setModal({ kind: 'upcoming-actions', eventId: u.id })}
+                >
+                  <View style={styles.upcomingDateCol}>
+                    <Text style={styles.upcomingDate}>{formatShortDate(u.date)}</Text>
+                    <Text style={styles.upcomingRelative}>{relativeDay(u.date, today)}</Text>
+                  </View>
+                  <View style={styles.upcomingBody}>
+                    <Text style={styles.upcomingText} numberOfLines={2}>{text}</Text>
+                    {(u.amount != null || linkedAccts.length > 0 || linkedConts.length > 0) && (
+                      <View style={styles.upcomingMeta}>
+                        {u.amount != null && (
+                          <View style={styles.salePill}>
+                            <Text style={styles.salePillText}>${u.amount.toLocaleString()}</Text>
+                          </View>
+                        )}
+                        {linkedAccts.slice(0, 1).map((a) => (
+                          <View key={a.id} style={styles.acctPill}>
+                            <Text style={styles.acctPillText} numberOfLines={1}>🏢 {a.name}</Text>
+                          </View>
+                        ))}
+                        {linkedAccts.length > 1 && (
+                          <View style={styles.acctPill}>
+                            <Text style={styles.acctPillText}>+{linkedAccts.length - 1}</Text>
+                          </View>
+                        )}
+                        {linkedConts.slice(0, 1).map((c) => (
+                          <View key={c.id} style={styles.contPill}>
+                            <Text style={styles.contPillText} numberOfLines={1}>👤 {c.name}</Text>
+                          </View>
+                        ))}
+                        {linkedConts.length > 1 && (
+                          <View style={styles.contPill}>
+                            <Text style={styles.contPillText}>+{linkedConts.length - 1}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
         </View>
 
       </ScrollView>
@@ -1196,6 +1329,49 @@ export function MainScreen() {
             title={fullName}
             actions={actions}
             groups={groups}
+          />
+        );
+      })()}
+
+      {/* Upcoming row action sheet */}
+      {modal.kind === 'upcoming-actions' && (() => {
+        const ev = storeEvents.find((e) => e.id === modal.eventId);
+        if (!ev) {
+          return <RowActionsSheet visible onClose={closeModal} title="" actions={[]} />;
+        }
+        const day = storeDays.find((d) => d.id === ev.day_id);
+        if (!day) {
+          return <RowActionsSheet visible onClose={closeModal} title="" actions={[]} />;
+        }
+        const title =
+          (ev.notes && ev.notes.trim().length > 0)
+            ? ev.notes
+            : (ev.amount != null ? `Sale $${ev.amount.toLocaleString()}` : '(no notes)');
+
+        const actions: RowAction[] = [
+          {
+            key: 'goto',
+            icon: '📅',
+            label: `Go to ${formatShortDate(day.date)}`,
+            onPress: () => { setViewDate(day.date); closeModal(); },
+          },
+          {
+            key: 'today',
+            icon: '⤓',
+            label: 'Move to today',
+            onPress: () => {
+              closeModal();
+              moveEventToToday(ev.id);
+            },
+          },
+        ];
+
+        return (
+          <RowActionsSheet
+            visible
+            onClose={closeModal}
+            title={title}
+            actions={actions}
           />
         );
       })()}
@@ -2249,6 +2425,64 @@ const styles = StyleSheet.create({
     backgroundColor: colors.status.customerBg,
   },
   contPillText: { color: colors.status.customerText, fontSize: typography.size.xs },
+
+  // Upcoming section
+  upcomingSection: {
+    marginTop: spacing[3],
+    paddingHorizontal: spacing[3],
+    gap: spacing[2],
+    paddingBottom: spacing[4],
+  },
+  upcomingTitle: {
+    fontSize: typography.size.xs,
+    color: colors.text.secondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: spacing[1],
+  },
+  upcomingEmpty: {
+    fontSize: typography.size.sm,
+    color: colors.text.disabled,
+    paddingHorizontal: spacing[1],
+    paddingVertical: spacing[2],
+  },
+  upcomingRow: {
+    flexDirection: 'row',
+    gap: spacing[3],
+    padding: spacing[3],
+    backgroundColor: colors.bg.surface,
+    borderWidth: 0.5,
+    borderColor: colors.border.muted,
+    borderRadius: radius.md,
+  },
+  upcomingDateCol: {
+    minWidth: 64,
+    gap: 2,
+  },
+  upcomingDate: {
+    fontSize: typography.size.sm,
+    fontWeight: typography.weight.semibold,
+    color: colors.text.primary,
+  },
+  upcomingRelative: {
+    fontSize: typography.size.xs,
+    color: colors.text.secondary,
+  },
+  upcomingBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing[1.5],
+  },
+  upcomingText: {
+    fontSize: typography.size.sm,
+    color: colors.text.primary,
+  },
+  upcomingMeta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[1.5],
+  },
+
   kebabBtn: {
     width: 36,
     height: 36,
