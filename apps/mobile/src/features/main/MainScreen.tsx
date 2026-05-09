@@ -71,6 +71,7 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, radius, typography, shadows } from '../../theme';
@@ -340,6 +341,7 @@ export function MainScreen() {
     | { kind: 'account-detail'; accountId: string | null; selectOnSave?: boolean }
     | { kind: 'account-actions'; accountId: string }
     | { kind: 'contact-detail'; contactId: string | null; selectOnSave?: boolean; linkToAccountId?: string; returnToAccountId?: string }
+    | { kind: 'contact-actions'; contactId: string }
     | { kind: 'event-form'; initial: EventFormInitial; returnToAccountId?: string }
     | { kind: 'follow-up'; source: FollowUpSource }
     | { kind: 'move-event'; source: MoveEventSource }
@@ -997,6 +999,138 @@ export function MainScreen() {
         );
       })()}
 
+      {/* Contact row action sheet */}
+      {modal.kind === 'contact-actions' && (() => {
+        const contact = storeContacts.find((c) => c.id === modal.contactId);
+        if (!contact) {
+          return (
+            <RowActionsSheet visible onClose={closeModal} title="" actions={[]} />
+          );
+        }
+        const fullName = `${contact.first_name} ${contact.last_name}`.trim() || '—';
+        const linkedAccount = contact.account_id
+          ? storeAccounts.find((a) => a.id === contact.account_id) ?? null
+          : null;
+
+        const myMethods = storeContactMethods
+          .filter((m) => m.contact_id === contact.id)
+          .sort((a, b) => {
+            const order: Record<string, number> = { cell: 0, work: 1, home: 2, email: 3, other: 4 };
+            const oa = order[a.type] ?? 99;
+            const ob = order[b.type] ?? 99;
+            if (oa !== ob) return oa - ob;
+            return Number(b.is_primary) - Number(a.is_primary);
+          });
+
+        const actions: RowAction[] = [
+          {
+            key: 'open',
+            icon: '👤',
+            iconBackground: colors.status.customerBg,
+            iconColor: colors.status.customerText,
+            label: 'Open contact',
+            onPress: () => setModal({ kind: 'contact-detail', contactId: contact.id }),
+          },
+          {
+            key: 'add-event',
+            icon: '＋',
+            label: 'Add event…',
+            onPress: () => {
+              setModal({
+                kind: 'event-form',
+                initial: {
+                  date: viewDate,
+                  accountIds: contact.account_id ? [contact.account_id] : [],
+                  contactIds: [contact.id],
+                },
+              });
+            },
+          },
+        ];
+
+        const groups: RowActionGroup[] = [];
+        if (linkedAccount) {
+          groups.push({
+            label: 'Linked account',
+            items: [
+              {
+                key: linkedAccount.id,
+                icon: '🏢',
+                iconBackground: colors.status.todayBg,
+                iconColor: colors.status.todayText,
+                label: linkedAccount.name,
+                onPress: () => setModal({ kind: 'account-detail', accountId: linkedAccount.id }),
+              },
+            ],
+          });
+        }
+
+        if (myMethods.length > 0) {
+          const items: RowAction[] = [];
+          for (const m of myMethods) {
+            const value = m.value;
+            if (m.type === 'cell') {
+              items.push({
+                key: `${m.id}-call`,
+                icon: '☎',
+                label: `Call cell  ${value}`,
+                onPress: () => {
+                  const url = `tel:${value.replace(/\D/g, '')}`;
+                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL tel: threw', e));
+                },
+              });
+              items.push({
+                key: `${m.id}-text`,
+                icon: '💬',
+                label: `Text cell  ${value}`,
+                onPress: () => {
+                  const url = `sms:${value.replace(/\D/g, '')}`;
+                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL sms: threw', e));
+                },
+              });
+            } else if (m.type === 'work' || m.type === 'home') {
+              items.push({
+                key: `${m.id}-call`,
+                icon: '☎',
+                label: `Call ${m.type}  ${value}`,
+                onPress: () => {
+                  const url = `tel:${value.replace(/\D/g, '')}`;
+                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL tel: threw', e));
+                },
+              });
+            } else if (m.type === 'email') {
+              items.push({
+                key: `${m.id}-email`,
+                icon: '✉',
+                label: `Email      ${value}`,
+                onPress: () => {
+                  const url = `mailto:${value}`;
+                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL mailto: threw', e));
+                },
+              });
+            } else {
+              items.push({
+                key: m.id,
+                icon: '•',
+                label: value,
+                onPress: () => {},
+              });
+            }
+          }
+          groups.push({ label: 'Contact', items });
+        }
+
+        return (
+          <RowActionsSheet
+            visible
+            onClose={closeModal}
+            title={fullName}
+            actions={actions}
+            groups={groups}
+          />
+        );
+      })()}
+
       {/* Accounts list (browse or pick) */}
       <Modal
         visible={modal.kind === 'accounts-list'}
@@ -1177,7 +1311,7 @@ export function MainScreen() {
                           onPress={() => {
                             if (isPick) selectContactIntoEditing(c.id);
                             else if (isLink && linkAccountId) linkContactToAccount(c.id, linkAccountId);
-                            else setModal({ kind: 'contact-detail', contactId: c.id });
+                            else setModal({ kind: 'contact-actions', contactId: c.id });
                           }}
                         >
                           <View style={[styles.modalRowIcon, { backgroundColor: colors.status.customerBg }]}>
