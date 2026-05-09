@@ -338,6 +338,7 @@ export function MainScreen() {
     | { kind: 'contacts-import' }
     | { kind: 'ai-settings' }
     | { kind: 'account-detail'; accountId: string | null; selectOnSave?: boolean }
+    | { kind: 'account-actions'; accountId: string }
     | { kind: 'contact-detail'; contactId: string | null; selectOnSave?: boolean; linkToAccountId?: string; returnToAccountId?: string }
     | { kind: 'event-form'; initial: EventFormInitial; returnToAccountId?: string }
     | { kind: 'follow-up'; source: FollowUpSource }
@@ -933,6 +934,69 @@ export function MainScreen() {
         );
       })()}
 
+      {/* Account row action sheet */}
+      {modal.kind === 'account-actions' && (() => {
+        const account = storeAccounts.find((a) => a.id === modal.accountId);
+        if (!account) {
+          return (
+            <RowActionsSheet visible onClose={closeModal} title="" actions={[]} />
+          );
+        }
+        const primary = account.primary_contact_id
+          ? storeContacts.find((c) => c.id === account.primary_contact_id) ?? null
+          : null;
+
+        const actions: RowAction[] = [
+          {
+            key: 'open',
+            icon: '🏢',
+            iconBackground: colors.status.todayBg,
+            iconColor: colors.status.todayText,
+            label: 'Open account',
+            onPress: () => setModal({ kind: 'account-detail', accountId: account.id }),
+          },
+          {
+            key: 'add-event',
+            icon: '＋',
+            label: 'Add event…',
+            onPress: () => {
+              setModal({
+                kind: 'event-form',
+                initial: { date: viewDate, accountIds: [account.id] },
+              });
+            },
+          },
+        ];
+
+        const groups: RowActionGroup[] = [];
+        if (primary) {
+          const primaryName = `${primary.first_name} ${primary.last_name}`.trim() || '—';
+          groups.push({
+            label: 'Primary contact',
+            items: [
+              {
+                key: primary.id,
+                icon: '👤',
+                iconBackground: colors.status.customerBg,
+                iconColor: colors.status.customerText,
+                label: primaryName,
+                onPress: () => setModal({ kind: 'contact-detail', contactId: primary.id }),
+              },
+            ],
+          });
+        }
+
+        return (
+          <RowActionsSheet
+            visible
+            onClose={closeModal}
+            title={account.name}
+            actions={actions}
+            groups={groups}
+          />
+        );
+      })()}
+
       {/* Accounts list (browse or pick) */}
       <Modal
         visible={modal.kind === 'accounts-list'}
@@ -999,7 +1063,7 @@ export function MainScreen() {
                           onPress={() =>
                             isPick
                               ? selectAccountIntoEditing(a.id)
-                              : setModal({ kind: 'account-detail', accountId: a.id })
+                              : setModal({ kind: 'account-actions', accountId: a.id })
                           }
                         >
                           <View style={[styles.modalRowIcon, { backgroundColor: colors.status.todayBg }]}>
