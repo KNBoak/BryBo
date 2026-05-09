@@ -169,6 +169,14 @@ function compareByLastTouch<T extends { lastInteraction: string | null }>(a: T, 
   return b.lastInteraction.localeCompare(a.lastInteraction);
 }
 
+function compareByNextEvent<T extends { nextEvent: string | null }>(a: T, b: T): number {
+  // Soonest first; null (no scheduled event) always ranks last.
+  if (a.nextEvent == null && b.nextEvent == null) return 0;
+  if (a.nextEvent == null) return 1;
+  if (b.nextEvent == null) return -1;
+  return a.nextEvent.localeCompare(b.nextEvent);
+}
+
 function relativeDay(iso: string, todayIso: string) {
   const a = new Date(iso + 'T00:00:00').getTime();
   const b = new Date(todayIso + 'T00:00:00').getTime();
@@ -333,7 +341,7 @@ export function MainScreen() {
   const [accountsProspectsOnly, setAccountsProspectsOnly] = useState(false);
   const [accountsSearch, setAccountsSearch] = useState('');
   const [contactsSearch, setContactsSearch] = useState('');
-  type ListSort = 'alpha' | 'recent';
+  type ListSort = 'alpha' | 'recent' | 'soonest';
   const [accountsSort, setAccountsSort] = useState<ListSort>('alpha');
   const [contactsSort, setContactsSort] = useState<ListSort>('alpha');
 
@@ -1166,11 +1174,11 @@ export function MainScreen() {
                   );
                 })
                 .slice()
-                .sort((a, b) =>
-                  accountsSort === 'recent'
-                    ? compareByLastTouch(a, b)
-                    : a.name.localeCompare(b.name),
-                );
+                .sort((a, b) => {
+                  if (accountsSort === 'recent') return compareByLastTouch(a, b);
+                  if (accountsSort === 'soonest') return compareByNextEvent(a, b);
+                  return a.name.localeCompare(b.name);
+                });
               return (
                 <>
                   <Text style={styles.modalTitle}>{isPick ? 'Link an account' : 'Accounts'}</Text>
@@ -1280,11 +1288,11 @@ export function MainScreen() {
                   );
                 })
                 .slice()
-                .sort((a, b) =>
-                  contactsSort === 'recent'
-                    ? compareByLastTouch(a, b)
-                    : a.name.localeCompare(b.name),
-                );
+                .sort((a, b) => {
+                  if (contactsSort === 'recent') return compareByLastTouch(a, b);
+                  if (contactsSort === 'soonest') return compareByNextEvent(a, b);
+                  return a.name.localeCompare(b.name);
+                });
               return (
                 <>
                   <Text style={styles.modalTitle}>{title}</Text>
@@ -1791,8 +1799,8 @@ function LogEditPanel(props: {
 }
 
 function SortToggle(props: {
-  value: 'alpha' | 'recent';
-  onChange: (v: 'alpha' | 'recent') => void;
+  value: 'alpha' | 'recent' | 'soonest';
+  onChange: (v: 'alpha' | 'recent' | 'soonest') => void;
 }) {
   return (
     <View style={styles.sortRow}>
@@ -1801,13 +1809,19 @@ function SortToggle(props: {
         style={[styles.sortBtn, props.value === 'alpha' && styles.sortBtnActive]}
         onPress={() => props.onChange('alpha')}
       >
-        <Text style={[styles.sortBtnText, props.value === 'alpha' && styles.sortBtnTextActive]}>Alphabetical</Text>
+        <Text style={[styles.sortBtnText, props.value === 'alpha' && styles.sortBtnTextActive]}>A–Z</Text>
       </Pressable>
       <Pressable
         style={[styles.sortBtn, props.value === 'recent' && styles.sortBtnActive]}
         onPress={() => props.onChange('recent')}
       >
         <Text style={[styles.sortBtnText, props.value === 'recent' && styles.sortBtnTextActive]}>Last touch</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.sortBtn, props.value === 'soonest' && styles.sortBtnActive]}
+        onPress={() => props.onChange('soonest')}
+      >
+        <Text style={[styles.sortBtnText, props.value === 'soonest' && styles.sortBtnTextActive]}>Next touch</Text>
       </Pressable>
     </View>
   );
