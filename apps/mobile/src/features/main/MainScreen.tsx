@@ -523,12 +523,7 @@ export function MainScreen() {
   }
 
   function tapLogRow(entry: LogEntry) {
-    const hasLinks = entry.accountIds.length > 0 || entry.contactIds.length > 0;
-    if (!hasLinks) {
-      startEditEntry(entry);
-    } else {
-      setModal({ kind: 'log-actions', entryId: entry.id });
-    }
+    setModal({ kind: 'log-actions', entryId: entry.id });
   }
 
   function startFollowUp(entry: LogEntry) {
