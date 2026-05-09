@@ -459,6 +459,7 @@ export async function seedAlMarIfMissing(): Promise<boolean> {
           notes: null,
           amount,
           is_cancelled: false,
+          source_event_id: null,
           created_at: now,
           updated_at: now,
         };
@@ -552,6 +553,7 @@ export async function seedAlMarIfMissing(): Promise<boolean> {
         notes: de.notes,
         amount: de.amount,
         is_cancelled: false,
+        source_event_id: null,
         created_at: now,
         updated_at: now,
       };

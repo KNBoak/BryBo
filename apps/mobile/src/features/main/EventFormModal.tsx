@@ -187,6 +187,7 @@ export function EventFormModal({ visible, initial, onClose, onSaved }: Props) {
         notes: finalNotes,
         amount: hasAmount ? parsedAmount : null,
         is_cancelled: false,
+        source_event_id: null,
         created_at: now,
         updated_at: now,
       };

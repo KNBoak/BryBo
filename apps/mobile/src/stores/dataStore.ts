@@ -344,13 +344,24 @@ export const useDataStore = create<DataState>((set, get) => ({
   deleteEvent: async (id) => {
     logInfo(TAG, 'deleteEvent()', { id });
     const { _storage } = get();
+    const followUpsToUpdate = get().events.filter((e) => e.source_event_id === id);
+    const now = new Date().toISOString();
     set((s) => ({
-      events: s.events.filter((e) => e.id !== id),
+      events: s.events
+        .filter((e) => e.id !== id)
+        .map((e) =>
+          e.source_event_id === id
+            ? { ...e, source_event_id: null, updated_at: now }
+            : e,
+        ),
       eventAccounts: s.eventAccounts.filter((ea) => ea.event_id !== id),
       eventContacts: s.eventContacts.filter((ec) => ec.event_id !== id),
     }));
     await _storage?.deleteEvent(id);
     await _storage?.deleteEventAccountsForEvent(id);
     await _storage?.deleteEventContactsForEvent(id);
+    for (const e of followUpsToUpdate) {
+      await _storage?.saveEvent({ ...e, source_event_id: null, updated_at: now });
+    }
   },
 }));

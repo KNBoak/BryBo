@@ -86,6 +86,8 @@ export interface Event {
   notes: string | null;
   amount: number | null; // only for sale/revenue events
   is_cancelled: boolean;
+  /** ID of the event this one was created as a follow-up of, or null. */
+  source_event_id: string | null;
   created_at: string;
   updated_at: string;
 }

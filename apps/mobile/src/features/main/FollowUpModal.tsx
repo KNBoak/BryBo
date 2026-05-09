@@ -75,8 +75,9 @@ export function FollowUpModal({ visible, source, onClose, onNavigateToDate }: Pr
     setPresetIdx(0);
     setCustomDate(null);
     setShowCalendar(false);
-    // Pre-fill notes with the source event's notes so the user can edit/clear.
-    setNotes(source.sourceNotes ?? '');
+    // Pre-fill notes with "follow-up from <date>" so the relationship is
+    // legible in the daily log even when the user doesn't customize.
+    setNotes(`follow-up from ${formatDate(source.sourceDate)}`);
     setAccountIds([...source.accountIds]);
     setContactIds([...source.contactIds]);
     setType(source.sourceType || 'call');
@@ -179,6 +180,7 @@ export function FollowUpModal({ visible, source, onClose, onNavigateToDate }: Pr
         notes: notes.trim() || null,
         amount: null,
         is_cancelled: false,
+        source_event_id: source.eventId,
         created_at: now,
         updated_at: now,
       };

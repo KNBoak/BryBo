@@ -491,6 +491,7 @@ export function MainScreen() {
         notes: editing.text.trim(),
         amount: amountNum,
         is_cancelled: existing?.is_cancelled ?? false,
+        source_event_id: existing?.source_event_id ?? null,
         created_at: existing?.created_at ?? now,
         updated_at: now,
       };

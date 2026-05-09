@@ -49,6 +49,13 @@ function normalizeAccount(a: Account): Account {
   };
 }
 
+function normalizeEvent(e: Event): Event {
+  return {
+    ...e,
+    source_event_id: e.source_event_id ?? null,
+  };
+}
+
 function ok<T>(data: T): StorageResult<T> {
   return { ok: true, data };
 }
@@ -302,7 +309,7 @@ export class AsyncStorageAdapter implements StorageAdapter {
   async getEvents(userId: string): Promise<StorageResult<Event[]>> {
     try {
       const all = await readArray<Event>(KEYS.events);
-      return ok(all.filter((e) => e.user_id === userId));
+      return ok(all.filter((e) => e.user_id === userId).map(normalizeEvent));
     } catch (e) {
       return err(e);
     }
@@ -311,7 +318,8 @@ export class AsyncStorageAdapter implements StorageAdapter {
   async getEventById(id: string): Promise<StorageResult<Event | null>> {
     try {
       const all = await readArray<Event>(KEYS.events);
-      return ok(all.find((e) => e.id === id) ?? null);
+      const event = all.find((e) => e.id === id) ?? null;
+      return ok(event ? normalizeEvent(event) : null);
     } catch (e) {
       return err(e);
     }
@@ -320,7 +328,7 @@ export class AsyncStorageAdapter implements StorageAdapter {
   async getEventsByDay(dayId: string): Promise<StorageResult<Event[]>> {
     try {
       const all = await readArray<Event>(KEYS.events);
-      return ok(all.filter((e) => e.day_id === dayId));
+      return ok(all.filter((e) => e.day_id === dayId).map(normalizeEvent));
     } catch (e) {
       return err(e);
     }
