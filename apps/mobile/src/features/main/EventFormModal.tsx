@@ -74,8 +74,10 @@ export function EventFormModal({ visible, initial, onClose, onSaved }: Props) {
     setPicker('none');
   }, [visible, initial]);
 
-  // Status auto-resolves from date: past = done, today/future = todo.
-  const status: 'todo' | 'done' = initial.status ?? (date < today ? 'done' : 'todo');
+  // Status auto-resolves: explicit > sale-default (done) > date-based.
+  const isSaleDraft = amount != null && (amount ?? '').trim() !== '';
+  const status: 'todo' | 'done' =
+    initial.status ?? (isSaleDraft ? 'done' : (date < today ? 'done' : 'todo'));
 
   const userAccounts = useMemo(
     () => storeAccounts.filter((a) => a.user_id === activeUserId),
