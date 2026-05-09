@@ -40,6 +40,15 @@ async function writeArray<T>(key: string, data: T[]): Promise<void> {
   await AsyncStorage.setItem(key, JSON.stringify(data));
 }
 
+function normalizeAccount(a: Account): Account {
+  // Default newly added optional-on-disk fields so the runtime contract
+  // matches the type when reading older snapshots.
+  return {
+    ...a,
+    primary_contact_id: a.primary_contact_id ?? null,
+  };
+}
+
 function ok<T>(data: T): StorageResult<T> {
   return { ok: true, data };
 }
@@ -152,7 +161,7 @@ export class AsyncStorageAdapter implements StorageAdapter {
   async getAccounts(userId: string): Promise<StorageResult<Account[]>> {
     try {
       const all = await readArray<Account>(KEYS.accounts);
-      return ok(all.filter((a) => a.user_id === userId));
+      return ok(all.filter((a) => a.user_id === userId).map(normalizeAccount));
     } catch (e) {
       return err(e);
     }
@@ -161,7 +170,8 @@ export class AsyncStorageAdapter implements StorageAdapter {
   async getAccountById(id: string): Promise<StorageResult<Account | null>> {
     try {
       const all = await readArray<Account>(KEYS.accounts);
-      return ok(all.find((a) => a.id === id) ?? null);
+      const account = all.find((a) => a.id === id) ?? null;
+      return ok(account ? normalizeAccount(account) : null);
     } catch (e) {
       return err(e);
     }

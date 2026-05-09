@@ -175,6 +175,7 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         website: draft.website.trim() || null,
         notes: draft.notes.trim() || null,
         is_prospect: draft.is_prospect,
+        primary_contact_id: existing?.primary_contact_id ?? null,
         created_at: existing?.created_at ?? now,
         updated_at: now,
       };

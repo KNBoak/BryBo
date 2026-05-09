@@ -34,6 +34,8 @@ export interface Account {
   website: string | null;
   notes: string | null;
   is_prospect: boolean;
+  /** ID of the contact marked as primary for this account; null if none. */
+  primary_contact_id: string | null;
   created_at: string;
   updated_at: string;
 }

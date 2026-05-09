@@ -440,6 +440,7 @@ export async function seedAlMarIfMissing(): Promise<boolean> {
         website: null,
         notes: null,
         is_prospect: !hasAnySales,
+        primary_contact_id: null,
         created_at: now,
         updated_at: now,
       };
@@ -500,6 +501,7 @@ export async function seedAlMarIfMissing(): Promise<boolean> {
       website: 'brooksidereno.example.com',
       notes: 'Long-time customer. Owner Tom prefers email/text over phone. Known for premium aluminum railings — typically orders Q2/Q3. Currently working on a 3-building condo expansion at Erie & Wellington (won the bid Feb 2026).',
       is_prospect: false,
+      primary_contact_id: null,
       created_at: now,
       updated_at: now,
     };
