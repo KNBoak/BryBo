@@ -74,7 +74,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, radius, typography, shadows } from '../../theme';
-import { Button } from '../../components/ui';
+import { Button, RowActionsSheet, type RowAction, type RowActionGroup } from '../../components/ui';
 import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
 import { logInfo, logError } from '../../utils/debug';
@@ -827,103 +827,94 @@ export function MainScreen() {
       />
 
       {/* Log row action sheet */}
-      <Modal
-        visible={modal.kind === 'log-actions'}
-        transparent
-        animationType="fade"
-        onRequestClose={closeModal}
-      >
-        <Pressable style={styles.modalOverlay} onPress={closeModal}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-            {modal.kind === 'log-actions' && (() => {
-              const entry = log.find((e) => e.id === modal.entryId);
-              if (!entry) return null;
-              const linkedAccts = accounts.filter((a) => entry.accountIds.includes(a.id));
-              const linkedConts = contacts.filter((c) => entry.contactIds.includes(c.id));
-              const confirmDelete = () => {
-                Alert.alert(
-                  'Delete this log entry?',
-                  'This cannot be undone.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete',
-                      style: 'destructive',
-                      onPress: async () => {
-                        closeModal();
-                        try { await deleteEvent(entry.id); }
-                        catch (e) { logError(TAG, 'log-actions delete threw', e); }
-                      },
-                    },
-                  ],
-                );
-              };
-              return (
-                <>
-                  <Text style={styles.modalTitle} numberOfLines={2}>{entry.text}</Text>
-                  <View style={styles.modalBody}>
-                    <Pressable
-                      style={styles.modalRow}
-                      onPress={() => { closeModal(); startEditEntry(entry); }}
-                    >
-                      <View style={[styles.modalRowIcon, { backgroundColor: colors.bg.raised }]}>
-                        <Text>✏️</Text>
-                      </View>
-                      <Text style={styles.modalRowText}>Edit</Text>
-                    </Pressable>
+      {modal.kind === 'log-actions' && (() => {
+        const entry = log.find((e) => e.id === modal.entryId);
+        if (!entry) {
+          return (
+            <RowActionsSheet
+              visible
+              onClose={closeModal}
+              title=""
+              actions={[]}
+            />
+          );
+        }
+        const linkedAccts = accounts.filter((a) => entry.accountIds.includes(a.id));
+        const linkedConts = contacts.filter((c) => entry.contactIds.includes(c.id));
 
-                    <Pressable style={styles.modalRow} onPress={confirmDelete}>
-                      <View style={[styles.modalRowIcon, { backgroundColor: colors.bg.raised }]}>
-                        <Text>🗑️</Text>
-                      </View>
-                      <Text style={[styles.modalRowText, { color: colors.text.danger }]}>Delete</Text>
-                    </Pressable>
+        const confirmDelete = () => {
+          Alert.alert(
+            'Delete this log entry?',
+            'This cannot be undone.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: async () => {
+                  closeModal();
+                  try { await deleteEvent(entry.id); }
+                  catch (e) { logError(TAG, 'log-actions delete threw', e); }
+                },
+              },
+            ],
+          );
+        };
 
-                    {linkedAccts.length > 0 && (
-                      <>
-                        <Text style={styles.modalSection}>Accounts</Text>
-                        {linkedAccts.map((a) => (
-                          <Pressable
-                            key={a.id}
-                            style={styles.modalRow}
-                            onPress={() => setModal({ kind: 'account-detail', accountId: a.id })}
-                          >
-                            <View style={[styles.modalRowIcon, { backgroundColor: colors.status.todayBg }]}>
-                              <Text style={{ color: colors.status.todayText }}>🏢</Text>
-                            </View>
-                            <Text style={styles.modalRowText}>{a.name}</Text>
-                          </Pressable>
-                        ))}
-                      </>
-                    )}
+        const actions: RowAction[] = [
+          {
+            key: 'edit',
+            icon: '✏️',
+            label: 'Edit',
+            onPress: () => { closeModal(); startEditEntry(entry); },
+          },
+          {
+            key: 'delete',
+            icon: '🗑️',
+            label: 'Delete',
+            destructive: true,
+            onPress: confirmDelete,
+          },
+        ];
 
-                    {linkedConts.length > 0 && (
-                      <>
-                        <Text style={styles.modalSection}>Contacts</Text>
-                        {linkedConts.map((c) => (
-                          <Pressable
-                            key={c.id}
-                            style={styles.modalRow}
-                            onPress={() => setModal({ kind: 'contact-detail', contactId: c.id })}
-                          >
-                            <View style={[styles.modalRowIcon, { backgroundColor: colors.status.customerBg }]}>
-                              <Text style={{ color: colors.status.customerText }}>👤</Text>
-                            </View>
-                            <Text style={styles.modalRowText}>{c.name}</Text>
-                          </Pressable>
-                        ))}
-                      </>
-                    )}
-                  </View>
-                  <Pressable style={styles.modalCancel} onPress={closeModal}>
-                    <Text style={styles.modalCancelText}>Cancel</Text>
-                  </Pressable>
-                </>
-              );
-            })()}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        const groups: RowActionGroup[] = [];
+        if (linkedAccts.length > 0) {
+          groups.push({
+            label: 'Accounts',
+            items: linkedAccts.map((a) => ({
+              key: a.id,
+              icon: '🏢',
+              iconBackground: colors.status.todayBg,
+              iconColor: colors.status.todayText,
+              label: a.name,
+              onPress: () => setModal({ kind: 'account-detail', accountId: a.id }),
+            })),
+          });
+        }
+        if (linkedConts.length > 0) {
+          groups.push({
+            label: 'Contacts',
+            items: linkedConts.map((c) => ({
+              key: c.id,
+              icon: '👤',
+              iconBackground: colors.status.customerBg,
+              iconColor: colors.status.customerText,
+              label: c.name,
+              onPress: () => setModal({ kind: 'contact-detail', contactId: c.id }),
+            })),
+          });
+        }
+
+        return (
+          <RowActionsSheet
+            visible
+            onClose={closeModal}
+            title={entry.text}
+            actions={actions}
+            groups={groups}
+          />
+        );
+      })()}
 
       {/* Accounts list (browse or pick) */}
       <Modal
