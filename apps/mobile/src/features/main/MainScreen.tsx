@@ -91,6 +91,7 @@ import { FollowUpModal, type FollowUpSource } from './FollowUpModal';
 import { buildDayContext } from './aiContext';
 import { runAiAssist, AiAuthError, AiRateLimitError, AiNetworkError, AiServerError } from './aiCall';
 import { getApiKey } from '../../utils/apiKeyStore';
+import { isVisibleEventDate } from '../../utils/dateCutoff';
 
 const TAG = 'MainScreen';
 
@@ -228,7 +229,7 @@ export function MainScreen() {
       const ev = eventById.get(ea.event_id);
       if (!ev || ev.is_cancelled) continue;
       const d = dayDateById.get(ev.day_id);
-      if (d) {
+      if (d && isVisibleEventDate(d)) {
         if (d < todayStr) {
           const cur = lastByAccount.get(ea.account_id);
           if (!cur || d > cur) lastByAccount.set(ea.account_id, d);
@@ -268,6 +269,7 @@ export function MainScreen() {
       if (!ev || ev.is_cancelled) continue;
       const d = dayDateById.get(ev.day_id);
       if (!d) continue;
+      if (!isVisibleEventDate(d)) continue;
       if (d < todayStr) {
         const cur = lastByContact.get(ec.contact_id);
         if (!cur || d > cur) lastByContact.set(ec.contact_id, d);
@@ -299,6 +301,7 @@ export function MainScreen() {
 
   // Log entries — events on the viewDate's Day, projected to the LogEntry shape
   const log: LogEntry[] = useMemo(() => {
+    if (!isVisibleEventDate(viewDate)) return [];
     const day = storeDays.find((d) => d.user_id === activeUserId && d.date === viewDate);
     if (!day) return [];
     const eventsOnDay = storeEvents.filter((e) => e.day_id === day.id && !e.is_cancelled);
