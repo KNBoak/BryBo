@@ -14,7 +14,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.brybo.app",
       "infoPlist": {
-        "NSContactsUsageDescription": "BryBo can import contacts from your address book so you can link them to accounts and log entries."
+        "NSContactsUsageDescription": "BryBo can import contacts from your address book so you can link them to accounts and log entries.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
