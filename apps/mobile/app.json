@@ -5,10 +5,10 @@
     "scheme": "brybo",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "splash": {
       "resizeMode": "contain",
-      "backgroundColor": "#0a0f1a"
+      "backgroundColor": "#f9fafb"
     },
     "ios": {
       "supportsTablet": false,

@@ -7,6 +7,8 @@ import {
   Pressable,
   Modal,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDataStore } from '../../stores/dataStore';
@@ -138,6 +140,7 @@ export function ProfileSelectScreen() {
       </View>
 
       <Modal visible={showNew} transparent animationType="slide">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Create Profile</Text>
@@ -165,6 +168,7 @@ export function ProfileSelectScreen() {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

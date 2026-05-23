@@ -60,6 +60,8 @@ function normalizeAccount(a: Account): Account {
   return {
     ...a,
     primary_contact_id: a.primary_contact_id ?? null,
+    is_archived: a.is_archived ?? false,
+    level: a.level ?? null,
     addresses,
   };
 }
@@ -68,6 +70,9 @@ function normalizeEvent(e: Event): Event {
   return {
     ...e,
     source_event_id: e.source_event_id ?? null,
+    // Older snapshots predate the note/task distinction. Treat open todos as
+    // tasks (so their checkboxes survive) and everything else as plain notes.
+    kind: e.kind ?? (e.status === 'todo' ? 'task' : 'note'),
   };
 }
 

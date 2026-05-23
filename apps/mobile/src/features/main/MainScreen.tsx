@@ -60,7 +60,7 @@
  * ──────────────────────────────────────────────────────────────────
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -72,6 +72,9 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  KeyboardAvoidingView,
+  PanResponder,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, radius, typography, shadows } from '../../theme';
@@ -114,6 +117,9 @@ type Account = {
   lastInteraction: string | null; // most-recent past event date (ISO)
   nextEvent: string | null;       // earliest upcoming event date (ISO)
   isProspect: boolean;
+  isArchived: boolean;
+  level: 'A' | 'B' | 'C' | null;
+  totalSales: number;             // sum of linked sale-event amounts
 };
 
 type Contact = {
@@ -130,7 +136,8 @@ type Contact = {
 type LogEntry = {
   id: string;
   text: string;
-  amount: number | null;   // null = note, number = sale
+  amount: number | null;   // null = note/task, number = sale
+  kind: 'note' | 'task';   // note = record-keeping (no checkbox), task = completable
   status: 'todo' | 'done';
   created_at: string;
   accountIds: string[];
@@ -143,6 +150,8 @@ type EditingEntry = Omit<LogEntry, 'id' | 'amount' | 'created_at'> & {
   id: string | null;
   amount: string | null;
 };
+
+type ListSort = 'alpha' | 'recent' | 'soonest' | 'sales' | 'level';
 
 
 // ──────────────────────────────────────────────────────────────────
@@ -182,6 +191,15 @@ function formatShortDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function shiftDay(iso: string, deltaDays: number): string {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + deltaDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function relativeDay(iso: string, todayIso: string) {
   const a = new Date(iso + 'T00:00:00').getTime();
   const b = new Date(todayIso + 'T00:00:00').getTime();
@@ -215,6 +233,11 @@ export function MainScreen() {
   const [viewDate, setViewDate] = useState<string>(todayIso());
   const today = todayIso();
   const isToday = viewDate === today;
+
+  // Page scroll ref + tracked offset — used to bring the note input above the
+  // keyboard on focus.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
 
   // Store reads
   const users = useDataStore((s) => s.users);
@@ -277,6 +300,9 @@ export function MainScreen() {
         lastInteraction: lastByAccount.get(a.id) ?? null,
         nextEvent: nextByAccount.get(a.id) ?? null,
         isProspect: a.is_prospect ?? true,
+        isArchived: a.is_archived ?? false,
+        level: a.level ?? null,
+        totalSales: totalSalesByAccount.get(a.id) ?? 0,
       }));
   }, [storeAccounts, storeEvents, storeDays, eventAccounts, activeUserId]);
 
@@ -332,6 +358,7 @@ export function MainScreen() {
       id: e.id,
       text: e.notes ?? '',
       amount: e.amount,
+      kind: (e.kind ?? (e.status === 'todo' ? 'task' : 'note')) as 'note' | 'task',
       // Legacy events without `status` (the seeded sales etc.) read as 'done'.
       status: (e.status ?? 'done') as 'todo' | 'done',
       created_at: e.created_at,
@@ -382,10 +409,8 @@ export function MainScreen() {
   // UI state
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [editing, setEditing] = useState<EditingEntry | null>(null);
-  const [accountsProspectsOnly, setAccountsProspectsOnly] = useState(false);
   const [accountsSearch, setAccountsSearch] = useState('');
   const [contactsSearch, setContactsSearch] = useState('');
-  type ListSort = 'alpha' | 'recent' | 'soonest';
   const [accountsSort, setAccountsSort] = useState<ListSort>('alpha');
   const [contactsSort, setContactsSort] = useState<ListSort>('alpha');
 
@@ -398,14 +423,12 @@ export function MainScreen() {
     | { kind: 'calendar' }
     | { kind: 'log-actions'; entryId: string }
     | { kind: 'upcoming-actions'; eventId: string }
-    | { kind: 'accounts-list'; mode: 'browse' | 'pick' }
+    | { kind: 'accounts-list'; mode: 'browse' | 'pick'; audience?: 'accounts' | 'prospects' | 'archived' }
     | { kind: 'contacts-list'; mode: 'browse' | 'pick' | 'link-to-account'; accountId?: string }
     | { kind: 'contacts-import' }
     | { kind: 'ai-settings' }
     | { kind: 'account-detail'; accountId: string | null; selectOnSave?: boolean }
-    | { kind: 'account-actions'; accountId: string }
     | { kind: 'contact-detail'; contactId: string | null; selectOnSave?: boolean; linkToAccountId?: string; returnToAccountId?: string }
-    | { kind: 'contact-actions'; contactId: string }
     | { kind: 'event-form'; initial: EventFormInitial; returnToAccountId?: string }
     | { kind: 'follow-up'; source: FollowUpSource }
     | { kind: 'move-event'; source: MoveEventSource }
@@ -464,23 +487,48 @@ export function MainScreen() {
   // Reset on date change — different day, different context.
   React.useEffect(() => { setAi({ status: 'idle', text: '', open: false }); }, [viewDate]);
 
-  // Sorted log: todos first, then done. Within each group: newest first.
-  const sortedLog = useMemo(() => {
-    return [...log].sort((a, b) => {
-      if (a.status !== b.status) return a.status === 'todo' ? -1 : 1;
-      return b.created_at.localeCompare(a.created_at);
-    });
+  // Swipe left/right on the header to step to the next/previous day. A ref keeps
+  // the current viewDate visible to the responder without rebuilding it.
+  const viewDateRef = useRef(viewDate);
+  viewDateRef.current = viewDate;
+  const daySwipe = useRef(
+    PanResponder.create({
+      // Only claim horizontal drags so vertical scrolling still works.
+      onMoveShouldSetPanResponder: (_e, g) =>
+        Math.abs(g.dx) > 40 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx > 50) setViewDate(shiftDay(viewDateRef.current, -1));
+        else if (g.dx < -50) setViewDate(shiftDay(viewDateRef.current, 1));
+      },
+    }),
+  ).current;
+
+  // Split the log into Tasks (completable) and Notes (record-keeping). Tasks:
+  // todos first, then done; newest within each. Notes: newest first.
+  const { tasks: logTasks, notes: logNotes } = useMemo(() => {
+    const tasks = log
+      .filter((e) => e.kind === 'task')
+      .sort((a, b) => {
+        if (a.status !== b.status) return a.status === 'todo' ? -1 : 1;
+        return b.created_at.localeCompare(a.created_at);
+      });
+    const notes = log
+      .filter((e) => e.kind === 'note')
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return { tasks, notes };
   }, [log]);
 
   // ── Handlers ──────────────────────────────────────────────────
 
   function startNewEntry() {
-    // New entry default: past dates auto-mark as done; today/future default to todo.
+    // New entries default to a plain note. When switched to a task, past dates
+    // auto-mark as done; today/future default to todo.
     const defaultStatus: 'todo' | 'done' = viewDate < today ? 'done' : 'todo';
     setEditing({
       id: null,
       text: '',
       amount: null,
+      kind: 'note',
       status: defaultStatus,
       accountIds: [],
       contactIds: [],
@@ -492,6 +540,7 @@ export function MainScreen() {
       id: entry.id,
       text: entry.text,
       amount: entry.amount != null ? String(entry.amount) : null,
+      kind: entry.kind,
       status: entry.status,
       accountIds: [...entry.accountIds],
       contactIds: [...entry.contactIds],
@@ -527,12 +576,16 @@ export function MainScreen() {
       }
 
       const existing = editing.id ? storeEvents.find((e) => e.id === editing.id) : null;
+      // Sales are record-keeping, so they're notes. Notes are never "todo".
+      const kind: 'note' | 'task' = isSale ? 'note' : editing.kind;
+      const status: 'todo' | 'done' = kind === 'note' ? 'done' : editing.status;
       const event: StoreEvent = {
         id: editing.id ?? generateId(),
         user_id: activeUserId,
         day_id: day.id,
         type: isSale ? 'sale' : 'note',
-        status: editing.status,
+        kind,
+        status,
         notes: editing.text.trim(),
         amount: amountNum,
         is_cancelled: existing?.is_cancelled ?? false,
@@ -715,16 +768,44 @@ export function MainScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+      >
 
         {/* ─── HEADER ─────────────────────────────────────────────── */}
-        <View style={[styles.header, isToday ? styles.headerToday : styles.headerOther]}>
+        <View
+          style={[styles.header, isToday ? styles.headerToday : styles.headerOther]}
+          {...daySwipe.panHandlers}
+        >
+          <Pressable
+            style={styles.dayNavBtn}
+            onPress={() => setViewDate(shiftDay(viewDate, -1))}
+            accessibilityRole="button"
+            accessibilityLabel="Previous day"
+            hitSlop={8}
+          >
+            <Text style={styles.dayNavChevron}>‹</Text>
+          </Pressable>
           <View style={styles.headerLeft}>
             <Text style={styles.dateText} numberOfLines={1}>{formatDateLong(viewDate)}</Text>
             <Text style={[styles.dateSub, !isToday && styles.dateSubOther]}>
-              {relativeDay(viewDate, today)}
+              {relativeDay(viewDate, today)} · swipe to change day
             </Text>
           </View>
+          <Pressable
+            style={styles.dayNavBtn}
+            onPress={() => setViewDate(shiftDay(viewDate, 1))}
+            accessibilityRole="button"
+            accessibilityLabel="Next day"
+            hitSlop={8}
+          >
+            <Text style={styles.dayNavChevron}>›</Text>
+          </Pressable>
           <Pressable
             style={styles.iconBtn}
             onPress={() => setModal({ kind: 'calendar' })}
@@ -824,34 +905,8 @@ export function MainScreen() {
         )}
 
         {/* ─── LOG SECTION ────────────────────────────────────────── */}
-        <View style={styles.logCard}>
-          <Text style={styles.logHeader}>Log</Text>
-
-          {sortedLog.length === 0 && !editing && (
-            <Text style={styles.empty}>Nothing logged yet</Text>
-          )}
-
-          {(editing && editing.id == null
-            ? [...sortedLog, null]
-            : sortedLog
-          ).map((entry, idx) => {
-            if (entry == null) {
-              return (
-                <LogEditPanel
-                  key="new"
-                  editing={editing!}
-                  accounts={accounts}
-                  contacts={contacts}
-                  setEditing={setEditing}
-                  onPickAccount={() => setModal({ kind: 'accounts-list', mode: 'pick' })}
-                  onPickContact={() => setModal({ kind: 'contacts-list', mode: 'pick' })}
-                  onCancel={cancelEditing}
-                  onSave={handleSaveEntry}
-                  onDelete={handleDeleteEntry}
-                />
-              );
-            }
-
+        {(() => {
+          const renderEntry = (entry: LogEntry, idx: number) => {
             const isBeingEdited = editing && editing.id === entry.id;
             return (
               <React.Fragment key={entry.id}>
@@ -874,54 +929,105 @@ export function MainScreen() {
                     onCancel={cancelEditing}
                     onSave={handleSaveEntry}
                     onDelete={handleDeleteEntry}
+                    scrollRef={scrollRef}
+                    scrollOffsetRef={scrollOffsetRef}
                   />
                 )}
               </React.Fragment>
             );
-          })}
+          };
+          // Only label the groups when both kinds are present; otherwise the
+          // single list reads fine without a subheading.
+          const showSectionHeaders = logTasks.length > 0 && logNotes.length > 0;
+          return (
+            <View style={styles.logCard}>
+              <Text style={styles.logHeader}>Log</Text>
 
-          <View style={styles.addRow}>
-            <Pressable style={styles.addPill} onPress={() => { if (!editing) startNewEntry(); }}>
-              <Text style={styles.addPillText}>+ add</Text>
-            </Pressable>
-          </View>
-        </View>
+              {logTasks.length === 0 && logNotes.length === 0 && !editing && (
+                <Text style={styles.empty}>Nothing logged yet</Text>
+              )}
+
+              {showSectionHeaders && logTasks.length > 0 && (
+                <Text style={styles.logSectionHeader}>Tasks</Text>
+              )}
+              {logTasks.map((entry, idx) => renderEntry(entry, idx))}
+
+              {showSectionHeaders && logNotes.length > 0 && (
+                <Text style={styles.logSectionHeader}>Notes</Text>
+              )}
+              {logNotes.map((entry, idx) => renderEntry(entry, idx))}
+
+              {editing && editing.id == null && (
+                <LogEditPanel
+                  key="new"
+                  editing={editing}
+                  accounts={accounts}
+                  contacts={contacts}
+                  setEditing={setEditing}
+                  onPickAccount={() => setModal({ kind: 'accounts-list', mode: 'pick' })}
+                  onPickContact={() => setModal({ kind: 'contacts-list', mode: 'pick' })}
+                  onCancel={cancelEditing}
+                  onSave={handleSaveEntry}
+                  onDelete={handleDeleteEntry}
+                  scrollRef={scrollRef}
+                  scrollOffsetRef={scrollOffsetRef}
+                />
+              )}
+
+              <View style={styles.addRow}>
+                <Pressable style={styles.addPill} onPress={() => { if (!editing) startNewEntry(); }}>
+                  <Text style={styles.addPillText}>+ add</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })()}
 
         {/* ─── BOTTOM BUTTONS ─────────────────────────────────────── */}
-        <View style={styles.bottomRow}>
-          <Pressable
-            style={({ pressed }) => [styles.bottomBtn, pressed && styles.bottomBtnPressed]}
-            onPress={() => setModal({ kind: 'accounts-list', mode: 'browse' })}
-            accessibilityRole="button"
-            accessibilityLabel={`Browse accounts. ${accounts.length} total.`}
-          >
-            <View style={[styles.bottomBtnIcon, { backgroundColor: colors.status.todayBg }]}>
-              <Text style={[styles.bottomBtnIconText, { color: colors.status.todayText }]}>🏢</Text>
+        {(() => {
+          const customerCount = accounts.filter((a) => !a.isProspect && !a.isArchived).length;
+          const prospectCount = accounts.filter((a) => a.isProspect && !a.isArchived).length;
+          return (
+            <View style={styles.bottomRow}>
+              <Pressable
+                style={({ pressed }) => [styles.bottomBtn, pressed && styles.bottomBtnPressed]}
+                onPress={() => setModal({ kind: 'accounts-list', mode: 'browse', audience: 'accounts' })}
+                accessibilityRole="button"
+                accessibilityLabel={`Browse accounts. ${customerCount} total.`}
+              >
+                <View style={[styles.bottomBtnIcon, { backgroundColor: colors.status.todayBg }]}>
+                  <Text style={[styles.bottomBtnIconText, { color: colors.status.todayText }]}>🏢</Text>
+                </View>
+                <Text style={styles.bottomBtnTitle}>Accounts</Text>
+                <Text style={styles.bottomBtnSub}>{customerCount}</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.bottomBtn, pressed && styles.bottomBtnPressed]}
+                onPress={() => setModal({ kind: 'accounts-list', mode: 'browse', audience: 'prospects' })}
+                accessibilityRole="button"
+                accessibilityLabel={`Browse prospects. ${prospectCount} total.`}
+              >
+                <View style={[styles.bottomBtnIcon, { backgroundColor: colors.status.prospectBg }]}>
+                  <Text style={[styles.bottomBtnIconText, { color: colors.status.prospectText }]}>🌱</Text>
+                </View>
+                <Text style={styles.bottomBtnTitle}>Prospects</Text>
+                <Text style={styles.bottomBtnSub}>{prospectCount}</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.bottomBtn, pressed && styles.bottomBtnPressed]}
+                onPress={() => setModal({ kind: 'contacts-list', mode: 'browse' })}
+                accessibilityRole="button"
+                accessibilityLabel={`Browse contacts. ${contacts.length} total.`}
+              >
+                <View style={[styles.bottomBtnIcon, { backgroundColor: colors.status.customerBg }]}>
+                  <Text style={[styles.bottomBtnIconText, { color: colors.status.customerText }]}>👤</Text>
+                </View>
+                <Text style={styles.bottomBtnTitle}>Contacts</Text>
+                <Text style={styles.bottomBtnSub}>{contacts.length}</Text>
+              </Pressable>
             </View>
-            <View style={styles.bottomBtnTextCol}>
-              <Text style={styles.bottomBtnTitle}>Accounts</Text>
-              <Text style={styles.bottomBtnSub}>
-                {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'}
-              </Text>
-            </View>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.bottomBtn, pressed && styles.bottomBtnPressed]}
-            onPress={() => setModal({ kind: 'contacts-list', mode: 'browse' })}
-            accessibilityRole="button"
-            accessibilityLabel={`Browse contacts. ${contacts.length} total.`}
-          >
-            <View style={[styles.bottomBtnIcon, { backgroundColor: colors.status.customerBg }]}>
-              <Text style={[styles.bottomBtnIconText, { color: colors.status.customerText }]}>👤</Text>
-            </View>
-            <View style={styles.bottomBtnTextCol}>
-              <Text style={styles.bottomBtnTitle}>Contacts</Text>
-              <Text style={styles.bottomBtnSub}>
-                {contacts.length} {contacts.length === 1 ? 'contact' : 'contacts'}
-              </Text>
-            </View>
-          </Pressable>
-        </View>
+          );
+        })()}
 
         {/* ─── UPCOMING EVENTS ────────────────────────────────────── */}
         <View style={styles.upcomingSection}>
@@ -985,6 +1091,7 @@ export function MainScreen() {
         </View>
 
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ─── MODALS ───────────────────────────────────────────────── */}
 
@@ -1141,201 +1248,6 @@ export function MainScreen() {
         );
       })()}
 
-      {/* Account row action sheet */}
-      {modal.kind === 'account-actions' && (() => {
-        const account = storeAccounts.find((a) => a.id === modal.accountId);
-        if (!account) {
-          return (
-            <RowActionsSheet visible onClose={closeModal} title="" actions={[]} />
-          );
-        }
-        const primary = account.primary_contact_id
-          ? storeContacts.find((c) => c.id === account.primary_contact_id) ?? null
-          : null;
-
-        const actions: RowAction[] = [
-          {
-            key: 'open',
-            icon: '🏢',
-            iconBackground: colors.status.todayBg,
-            iconColor: colors.status.todayText,
-            label: 'Open account',
-            onPress: () => setModal({ kind: 'account-detail', accountId: account.id }),
-          },
-          {
-            key: 'add-event',
-            icon: '＋',
-            label: 'Add event…',
-            onPress: () => {
-              setModal({
-                kind: 'event-form',
-                initial: { date: viewDate, accountIds: [account.id] },
-              });
-            },
-          },
-        ];
-
-        const groups: RowActionGroup[] = [];
-        if (primary) {
-          const primaryName = `${primary.first_name} ${primary.last_name}`.trim() || '—';
-          groups.push({
-            label: 'Primary contact',
-            items: [
-              {
-                key: primary.id,
-                icon: '👤',
-                iconBackground: colors.status.customerBg,
-                iconColor: colors.status.customerText,
-                label: primaryName,
-                onPress: () => setModal({ kind: 'contact-detail', contactId: primary.id }),
-              },
-            ],
-          });
-        }
-
-        return (
-          <RowActionsSheet
-            visible
-            onClose={closeModal}
-            title={account.name}
-            actions={actions}
-            groups={groups}
-          />
-        );
-      })()}
-
-      {/* Contact row action sheet */}
-      {modal.kind === 'contact-actions' && (() => {
-        const contact = storeContacts.find((c) => c.id === modal.contactId);
-        if (!contact) {
-          return (
-            <RowActionsSheet visible onClose={closeModal} title="" actions={[]} />
-          );
-        }
-        const fullName = `${contact.first_name} ${contact.last_name}`.trim() || '—';
-        const linkedAccount = contact.account_id
-          ? storeAccounts.find((a) => a.id === contact.account_id) ?? null
-          : null;
-
-        const myMethods = storeContactMethods
-          .filter((m) => m.contact_id === contact.id)
-          .sort((a, b) => {
-            const order: Record<string, number> = { cell: 0, work: 1, home: 2, email: 3, other: 4 };
-            const oa = order[a.type] ?? 99;
-            const ob = order[b.type] ?? 99;
-            if (oa !== ob) return oa - ob;
-            return Number(b.is_primary) - Number(a.is_primary);
-          });
-
-        const actions: RowAction[] = [
-          {
-            key: 'open',
-            icon: '👤',
-            iconBackground: colors.status.customerBg,
-            iconColor: colors.status.customerText,
-            label: 'Open contact',
-            onPress: () => setModal({ kind: 'contact-detail', contactId: contact.id }),
-          },
-          {
-            key: 'add-event',
-            icon: '＋',
-            label: 'Add event…',
-            onPress: () => {
-              setModal({
-                kind: 'event-form',
-                initial: {
-                  date: viewDate,
-                  accountIds: contact.account_id ? [contact.account_id] : [],
-                  contactIds: [contact.id],
-                },
-              });
-            },
-          },
-        ];
-
-        const groups: RowActionGroup[] = [];
-        if (linkedAccount) {
-          groups.push({
-            label: 'Linked account',
-            items: [
-              {
-                key: linkedAccount.id,
-                icon: '🏢',
-                iconBackground: colors.status.todayBg,
-                iconColor: colors.status.todayText,
-                label: linkedAccount.name,
-                onPress: () => setModal({ kind: 'account-detail', accountId: linkedAccount.id }),
-              },
-            ],
-          });
-        }
-
-        if (myMethods.length > 0) {
-          const items: RowAction[] = [];
-          for (const m of myMethods) {
-            const value = m.value;
-            if (m.type === 'cell') {
-              items.push({
-                key: `${m.id}-call`,
-                icon: '☎',
-                label: `Call cell  ${value}`,
-                onPress: () => {
-                  const url = `tel:${value.replace(/\D/g, '')}`;
-                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL tel: threw', e));
-                },
-              });
-              items.push({
-                key: `${m.id}-text`,
-                icon: '💬',
-                label: `Text cell  ${value}`,
-                onPress: () => {
-                  const url = `sms:${value.replace(/\D/g, '')}`;
-                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL sms: threw', e));
-                },
-              });
-            } else if (m.type === 'work' || m.type === 'home') {
-              items.push({
-                key: `${m.id}-call`,
-                icon: '☎',
-                label: `Call ${m.type}  ${value}`,
-                onPress: () => {
-                  const url = `tel:${value.replace(/\D/g, '')}`;
-                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL tel: threw', e));
-                },
-              });
-            } else if (m.type === 'email') {
-              items.push({
-                key: `${m.id}-email`,
-                icon: '✉',
-                label: `Email      ${value}`,
-                onPress: () => {
-                  const url = `mailto:${value}`;
-                  Linking.openURL(url).catch((e) => logError(TAG, 'Linking.openURL mailto: threw', e));
-                },
-              });
-            } else {
-              items.push({
-                key: m.id,
-                icon: '•',
-                label: value,
-                onPress: () => {},
-              });
-            }
-          }
-          groups.push({ label: 'Contact', items });
-        }
-
-        return (
-          <RowActionsSheet
-            visible
-            onClose={closeModal}
-            title={fullName}
-            actions={actions}
-            groups={groups}
-          />
-        );
-      })()}
-
       {/* Upcoming row action sheet */}
       {modal.kind === 'upcoming-actions' && (() => {
         const ev = storeEvents.find((e) => e.id === modal.eventId);
@@ -1395,14 +1307,25 @@ export function MainScreen() {
         animationType="fade"
         onRequestClose={closeModal}
       >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
             {modal.kind === 'accounts-list' && (() => {
               const isPick = modal.mode === 'pick';
+              // Picking always targets real accounts; browse honors the audience.
+              const audience = isPick ? 'accounts' : (modal.audience ?? 'accounts');
               const linkedSet = new Set(editing?.accountIds ?? []);
               const q = accountsSearch.trim().toLowerCase();
+              const archivedCount = accounts.filter((a) => a.isArchived).length;
+              const levelRank = (l: 'A' | 'B' | 'C' | null) => (l === 'A' ? 0 : l === 'B' ? 1 : l === 'C' ? 2 : 3);
               const visibleAccounts = accounts
-                .filter((a) => !accountsProspectsOnly || a.isProspect)
+                .filter((a) => {
+                  if (audience === 'archived') return a.isArchived;
+                  if (a.isArchived) return false;
+                  // Linking an entry can target any active account or prospect.
+                  if (isPick) return true;
+                  return audience === 'prospects' ? a.isProspect : !a.isProspect;
+                })
                 .filter((a) => {
                   if (!q) return true;
                   return (
@@ -1414,39 +1337,44 @@ export function MainScreen() {
                 .sort((a, b) => {
                   if (accountsSort === 'recent') return compareByLastTouch(a, b);
                   if (accountsSort === 'soonest') return compareByNextEvent(a, b);
+                  if (accountsSort === 'sales') return b.totalSales - a.totalSales;
+                  if (accountsSort === 'level') {
+                    const r = levelRank(a.level) - levelRank(b.level);
+                    if (r !== 0) return r;
+                    return a.name.localeCompare(b.name);
+                  }
                   return a.name.localeCompare(b.name);
                 });
+              const title = isPick
+                ? 'Link an account'
+                : audience === 'prospects' ? 'Prospects'
+                : audience === 'archived' ? 'Archived'
+                : 'Accounts';
               return (
                 <>
-                  <Text style={styles.modalTitle}>{isPick ? 'Link an account' : 'Accounts'}</Text>
+                  <Text style={styles.modalTitle}>{title}</Text>
                   <View style={styles.modalSearchRow}>
                     <TextInput
                       style={styles.modalSearch}
                       value={accountsSearch}
                       onChangeText={setAccountsSearch}
-                      placeholder="Search accounts…"
+                      placeholder={audience === 'prospects' ? 'Search prospects…' : 'Search accounts…'}
                       placeholderTextColor={colors.form.inputPlaceholder}
                       autoCapitalize="none"
                       autoCorrect={false}
                     />
                   </View>
-                  <View style={styles.modalActions}>
-                    <Pressable
-                      style={styles.addPill}
-                      onPress={() => setModal({ kind: 'account-detail', accountId: null, selectOnSave: isPick })}
-                    >
-                      <Text style={styles.addPillText}>+ Add new</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.filterChip, accountsProspectsOnly && styles.filterChipActive]}
-                      onPress={() => setAccountsProspectsOnly((v) => !v)}
-                    >
-                      <Text style={[styles.filterChipText, accountsProspectsOnly && styles.filterChipTextActive]}>
-                        {accountsProspectsOnly ? '✓ Prospects only' : '🌱 Prospects only'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                  <SortToggle value={accountsSort} onChange={setAccountsSort} />
+                  {audience !== 'archived' && (
+                    <View style={styles.modalActions}>
+                      <Pressable
+                        style={styles.addPill}
+                        onPress={() => setModal({ kind: 'account-detail', accountId: null, selectOnSave: isPick })}
+                      >
+                        <Text style={styles.addPillText}>+ Add new</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                  <SortToggle value={accountsSort} onChange={setAccountsSort} showSales showLevel />
                   <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
                     {visibleAccounts.length === 0 && (
                       <Text style={styles.empty}>No matches</Text>
@@ -1461,17 +1389,26 @@ export function MainScreen() {
                           onPress={() =>
                             isPick
                               ? selectAccountIntoEditing(a.id)
-                              : setModal({ kind: 'account-actions', accountId: a.id })
+                              : setModal({ kind: 'account-detail', accountId: a.id })
                           }
                         >
                           <View style={[styles.modalRowIcon, { backgroundColor: colors.status.todayBg }]}>
                             <Text style={{ color: colors.status.todayText }}>🏢</Text>
                           </View>
+                          {a.level && (
+                            <View style={styles.levelBadge}>
+                              <Text style={styles.levelBadgeText}>{a.level}</Text>
+                            </View>
+                          )}
                           <Text style={[styles.modalRowText, used && styles.modalRowTextDisabled]}>{a.name}</Text>
                           {a.isProspect && <Text style={styles.prospectTag}>🌱</Text>}
                           <View style={styles.modalListDateCol}>
                             {used ? (
                               <Text style={styles.modalListDate}>linked</Text>
+                            ) : accountsSort === 'sales' ? (
+                              <Text style={styles.modalListDateNext}>
+                                {a.totalSales > 0 ? `$${a.totalSales.toLocaleString()}` : '—'}
+                              </Text>
                             ) : (
                               <>
                                 {a.nextEvent ? (
@@ -1490,6 +1427,22 @@ export function MainScreen() {
                       );
                     })}
                   </ScrollView>
+                  {!isPick && audience === 'accounts' && archivedCount > 0 && (
+                    <Pressable
+                      style={styles.archivedLink}
+                      onPress={() => setModal({ kind: 'accounts-list', mode: 'browse', audience: 'archived' })}
+                    >
+                      <Text style={styles.archivedLinkText}>🗄  Archived ({archivedCount})</Text>
+                    </Pressable>
+                  )}
+                  {!isPick && audience === 'archived' && (
+                    <Pressable
+                      style={styles.archivedLink}
+                      onPress={() => setModal({ kind: 'accounts-list', mode: 'browse', audience: 'accounts' })}
+                    >
+                      <Text style={styles.archivedLinkText}>← Back to accounts</Text>
+                    </Pressable>
+                  )}
                   <Pressable style={styles.modalCancel} onPress={closeModal}>
                     <Text style={styles.modalCancelText}>{isPick ? 'Cancel' : 'Close'}</Text>
                   </Pressable>
@@ -1498,6 +1451,7 @@ export function MainScreen() {
             })()}
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Contacts list (browse or pick) */}
@@ -1507,6 +1461,7 @@ export function MainScreen() {
         animationType="fade"
         onRequestClose={closeModal}
       >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
             {modal.kind === 'contacts-list' && (() => {
@@ -1583,7 +1538,7 @@ export function MainScreen() {
                           onPress={() => {
                             if (isPick) selectContactIntoEditing(c.id);
                             else if (isLink && linkAccountId) linkContactToAccount(c.id, linkAccountId);
-                            else setModal({ kind: 'contact-actions', contactId: c.id });
+                            else setModal({ kind: 'contact-detail', contactId: c.id });
                           }}
                         >
                           <View style={[styles.modalRowIcon, { backgroundColor: colors.status.customerBg }]}>
@@ -1629,6 +1584,7 @@ export function MainScreen() {
             })()}
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Import contacts from device */}
@@ -1827,6 +1783,7 @@ function LogRow(props: {
   const { entry } = props;
   const acctCount = entry.accountIds.length;
   const contCount = entry.contactIds.length;
+  const isTask = entry.kind === 'task';
   const isDone = entry.status === 'done';
   const hasMeta = entry.amount != null || acctCount > 0 || contCount > 0;
   const text = entry.text || (entry.amount != null ? '(sale)' : '');
@@ -1836,21 +1793,29 @@ function LogRow(props: {
       onPress={props.onPress}
       style={[styles.logRow, props.showDivider && styles.logRowBordered]}
       accessibilityRole="button"
-      accessibilityLabel={`${isDone ? 'Done' : 'To do'}: ${text}`}
+      accessibilityLabel={isTask ? `${isDone ? 'Done' : 'To do'}: ${text}` : `Note: ${text}`}
     >
-      <Pressable
-        style={[styles.statusToggle, isDone && styles.statusToggleDone]}
-        onPress={(e) => { e.stopPropagation(); props.onToggleStatus(); }}
-        hitSlop={10}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: isDone }}
-        accessibilityLabel={isDone ? 'Mark as to do' : 'Mark as done'}
-      >
-        {isDone ? <Text style={styles.statusToggleMark}>✓</Text> : null}
-      </Pressable>
+      {isTask ? (
+        <Pressable
+          style={[styles.statusToggle, isDone && styles.statusToggleDone]}
+          onPress={(e) => { e.stopPropagation(); props.onToggleStatus(); }}
+          hitSlop={10}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: isDone }}
+          accessibilityLabel={isDone ? 'Mark as to do' : 'Mark as done'}
+        >
+          {isDone ? <Text style={styles.statusToggleMark}>✓</Text> : null}
+        </Pressable>
+      ) : (
+        // Notes are record-keeping: no checkbox. A spacer keeps text aligned
+        // with task rows; a small dot marks it as a note.
+        <View style={styles.noteMarker}>
+          <View style={styles.noteMarkerDot} />
+        </View>
+      )}
       <View style={styles.logRowBody}>
         <Text
-          style={[styles.logRowText, isDone && styles.logRowTextDone]}
+          style={[styles.logRowText, isTask && isDone && styles.logRowTextDone]}
           numberOfLines={2}
         >
           {text}
@@ -1898,9 +1863,35 @@ function LogEditPanel(props: {
   onCancel: () => void;
   onSave: () => void;
   onDelete: () => void;
+  scrollRef?: React.RefObject<ScrollView | null>;
+  scrollOffsetRef?: React.RefObject<number>;
 }) {
   const { editing, accounts, contacts, setEditing } = props;
   const showAmount = editing.amount != null;
+  const containerRef = React.useRef<View>(null);
+
+  // Keep the note input visible above the keyboard. Use measure() (absolute
+  // window coords — works on both old and new RN architectures) plus the
+  // tracked scroll offset to scroll this panel near the top of the viewport.
+  const handleInputFocus = React.useCallback(() => {
+    const scroll = props.scrollRef?.current;
+    const container = containerRef.current;
+    if (!scroll || !container || typeof container.measure !== 'function') return;
+    // Delay so the keyboard frame is settled before we measure/scroll.
+    setTimeout(() => {
+      try {
+        container.measure((_x, _y, _w, _h, _px, pageY) => {
+          const currentOffset = props.scrollOffsetRef?.current ?? 0;
+          // Bring the panel top to ~120px from the screen top, comfortably
+          // above the keyboard regardless of its height.
+          const target = currentOffset + pageY - 120;
+          scroll.scrollTo({ y: Math.max(0, target), animated: true });
+        });
+      } catch {
+        // Measuring can fail if the view detaches mid-animation; ignore.
+      }
+    }, 80);
+  }, [props.scrollRef, props.scrollOffsetRef]);
 
   const linkedAccts = accounts.filter((a) => editing.accountIds.includes(a.id));
   const linkedConts = contacts.filter((c) => editing.contactIds.includes(c.id));
@@ -1919,36 +1910,65 @@ function LogEditPanel(props: {
     : null;
 
   return (
-    <View style={styles.editPanel}>
+    <View style={styles.editPanel} ref={containerRef}>
       <TextInput
         style={styles.editTextarea}
         multiline
         value={editing.text}
         onChangeText={(t) => setEditing({ ...editing, text: t })}
-        placeholder="What happened? Or what needs to happen?"
+        placeholder={
+          isSale ? 'Note about this sale (optional)…'
+          : editing.kind === 'task' ? 'What needs to happen?'
+          : 'What happened? Add a note…'
+        }
         placeholderTextColor={colors.form.inputPlaceholder}
         autoFocus
+        onFocus={handleInputFocus}
       />
 
-      <View style={styles.statusRow}>
-        <Text style={styles.statusRowLabel}>Status</Text>
-        <Pressable
-          style={[styles.statusChip, editing.status === 'todo' && styles.statusChipActiveTodo]}
-          onPress={() => setEditing({ ...editing, status: 'todo' })}
-        >
-          <Text style={[styles.statusChipText, editing.status === 'todo' && styles.statusChipActiveText]}>
-            ☐  To do
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.statusChip, editing.status === 'done' && styles.statusChipActiveDone]}
-          onPress={() => setEditing({ ...editing, status: 'done' })}
-        >
-          <Text style={[styles.statusChipText, editing.status === 'done' && styles.statusChipActiveText]}>
-            ✓  Done
-          </Text>
-        </Pressable>
-      </View>
+      {!isSale && (
+        <View style={styles.statusRow}>
+          <Text style={styles.statusRowLabel}>Type</Text>
+          <Pressable
+            style={[styles.statusChip, editing.kind === 'note' && styles.statusChipActiveDone]}
+            onPress={() => setEditing({ ...editing, kind: 'note' })}
+          >
+            <Text style={[styles.statusChipText, editing.kind === 'note' && styles.statusChipActiveText]}>
+              • Note
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.statusChip, editing.kind === 'task' && styles.statusChipActiveTodo]}
+            onPress={() => setEditing({ ...editing, kind: 'task' })}
+          >
+            <Text style={[styles.statusChipText, editing.kind === 'task' && styles.statusChipActiveText]}>
+              ☐ Task
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
+      {!isSale && editing.kind === 'task' && (
+        <View style={styles.statusRow}>
+          <Text style={styles.statusRowLabel}>Status</Text>
+          <Pressable
+            style={[styles.statusChip, editing.status === 'todo' && styles.statusChipActiveTodo]}
+            onPress={() => setEditing({ ...editing, status: 'todo' })}
+          >
+            <Text style={[styles.statusChipText, editing.status === 'todo' && styles.statusChipActiveText]}>
+              ☐  To do
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.statusChip, editing.status === 'done' && styles.statusChipActiveDone]}
+            onPress={() => setEditing({ ...editing, status: 'done' })}
+          >
+            <Text style={[styles.statusChipText, editing.status === 'done' && styles.statusChipActiveText]}>
+              ✓  Done
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {showAmount && (
         <View style={styles.editAmountRow}>
@@ -2036,8 +2056,10 @@ function LogEditPanel(props: {
 }
 
 function SortToggle(props: {
-  value: 'alpha' | 'recent' | 'soonest';
-  onChange: (v: 'alpha' | 'recent' | 'soonest') => void;
+  value: ListSort;
+  onChange: (v: ListSort) => void;
+  showSales?: boolean;
+  showLevel?: boolean;
 }) {
   return (
     <View style={styles.sortRow}>
@@ -2052,14 +2074,30 @@ function SortToggle(props: {
         style={[styles.sortBtn, props.value === 'recent' && styles.sortBtnActive]}
         onPress={() => props.onChange('recent')}
       >
-        <Text style={[styles.sortBtnText, props.value === 'recent' && styles.sortBtnTextActive]}>Last touch</Text>
+        <Text style={[styles.sortBtnText, props.value === 'recent' && styles.sortBtnTextActive]}>Recent</Text>
       </Pressable>
       <Pressable
         style={[styles.sortBtn, props.value === 'soonest' && styles.sortBtnActive]}
         onPress={() => props.onChange('soonest')}
       >
-        <Text style={[styles.sortBtnText, props.value === 'soonest' && styles.sortBtnTextActive]}>Next touch</Text>
+        <Text style={[styles.sortBtnText, props.value === 'soonest' && styles.sortBtnTextActive]}>Next</Text>
       </Pressable>
+      {props.showSales && (
+        <Pressable
+          style={[styles.sortBtn, props.value === 'sales' && styles.sortBtnActive]}
+          onPress={() => props.onChange('sales')}
+        >
+          <Text style={[styles.sortBtnText, props.value === 'sales' && styles.sortBtnTextActive]}>Sales $</Text>
+        </Pressable>
+      )}
+      {props.showLevel && (
+        <Pressable
+          style={[styles.sortBtn, props.value === 'level' && styles.sortBtnActive]}
+          onPress={() => props.onChange('level')}
+        >
+          <Text style={[styles.sortBtnText, props.value === 'level' && styles.sortBtnTextActive]}>Level</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -2094,7 +2132,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg.sunken,
     borderStyle: 'dashed',
   },
-  headerLeft: { flex: 1, minWidth: 0 },
+  headerLeft: { flex: 1, minWidth: 0, alignItems: 'center' },
+  dayNavBtn: {
+    width: 28,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayNavChevron: {
+    fontSize: 24,
+    lineHeight: 26,
+    color: colors.text.secondary,
+    fontWeight: typography.weight.medium,
+  },
   dateText: {
     fontSize: typography.size.md,
     fontWeight: typography.weight.semibold,
@@ -2354,6 +2404,16 @@ const styles = StyleSheet.create({
     fontWeight: typography.weight.medium,
     color: colors.text.secondary,
   },
+  logSectionHeader: {
+    paddingHorizontal: spacing[3],
+    paddingTop: spacing[3],
+    paddingBottom: spacing[1],
+    fontSize: typography.size.xs,
+    fontWeight: typography.weight.semibold,
+    color: colors.text.secondary,
+    textTransform: 'uppercase',
+    letterSpacing: typography.letterSpacing.wide,
+  },
   empty: {
     paddingVertical: spacing[5],
     paddingHorizontal: spacing[3],
@@ -2401,6 +2461,19 @@ const styles = StyleSheet.create({
     borderColor: colors.interactive.primary,
   },
   statusToggleMark: { color: '#fff', fontSize: 14, fontWeight: typography.weight.bold },
+  noteMarker: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  noteMarkerDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.text.secondary,
+  },
   logRowText: {
     flex: 1,
     fontSize: typography.size.base,
@@ -2673,18 +2746,18 @@ const styles = StyleSheet.create({
   },
 
   // Bottom buttons
-  bottomRow: { flexDirection: 'row', gap: spacing[3] },
+  bottomRow: { flexDirection: 'row', gap: spacing[2] },
   bottomBtn: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'column',
     backgroundColor: colors.bg.surface,
     borderRadius: radius.lg,
     borderWidth: 0.5,
     borderColor: colors.border.muted,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3.5],
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[3],
     alignItems: 'center',
-    gap: spacing[3],
+    gap: spacing[1],
     ...shadows.sm,
   },
   bottomBtnPressed: {
@@ -2692,14 +2765,13 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
   bottomBtnIcon: {
-    width: 44, height: 44,
+    width: 40, height: 40,
     borderRadius: radius.full,
     alignItems: 'center', justifyContent: 'center',
   },
-  bottomBtnIconText: { fontSize: 20 },
-  bottomBtnTextCol: { flex: 1, minWidth: 0 },
+  bottomBtnIconText: { fontSize: 18 },
   bottomBtnTitle: {
-    fontSize: typography.size.md,
+    fontSize: typography.size.sm,
     fontWeight: typography.weight.semibold,
     color: colors.text.primary,
     letterSpacing: typography.letterSpacing.tight,
@@ -2707,7 +2779,27 @@ const styles = StyleSheet.create({
   bottomBtnSub: {
     fontSize: typography.size.xs,
     color: colors.text.secondary,
-    marginTop: spacing[0.5],
+  },
+  levelBadge: {
+    width: 20, height: 20,
+    borderRadius: radius.sm,
+    backgroundColor: colors.interactive.primary,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: spacing[1],
+  },
+  levelBadgeText: {
+    fontSize: typography.size.xs,
+    fontWeight: typography.weight.bold,
+    color: colors.interactive.primaryText,
+  },
+  archivedLink: {
+    paddingVertical: spacing[2],
+    alignItems: 'center',
+  },
+  archivedLinkText: {
+    fontSize: typography.size.sm,
+    color: colors.text.link,
+    fontWeight: typography.weight.medium,
   },
 
   // Modals
@@ -2827,6 +2919,7 @@ const styles = StyleSheet.create({
   sortRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: spacing[2],
     paddingHorizontal: spacing[3],
     paddingBottom: spacing[2],

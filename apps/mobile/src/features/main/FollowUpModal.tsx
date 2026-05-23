@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors, spacing, radius, typography } from '../../theme';
 import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
@@ -75,9 +75,13 @@ export function FollowUpModal({ visible, source, onClose, onNavigateToDate }: Pr
     setPresetIdx(0);
     setCustomDate(null);
     setShowCalendar(false);
-    // Pre-fill notes with "follow-up from <date>" so the relationship is
-    // legible in the daily log even when the user doesn't customize.
-    setNotes(`follow-up from ${formatDate(source.sourceDate)}`);
+    // Carry the original entry's text forward so the follow-up is self-
+    // explanatory in the daily log and the Upcoming list (which shows notes
+    // verbatim). Fall back to a dated stub when the source had no notes.
+    const sourceText = source.sourceNotes?.trim();
+    setNotes(sourceText && sourceText.length > 0
+      ? sourceText
+      : `follow-up from ${formatDate(source.sourceDate)}`);
     setAccountIds([...source.accountIds]);
     setContactIds([...source.contactIds]);
     setType(source.sourceType || 'call');
@@ -176,6 +180,7 @@ export function FollowUpModal({ visible, source, onClose, onNavigateToDate }: Pr
         user_id: activeUserId,
         day_id: day.id,
         type,
+        kind: 'task',
         status: 'todo',
         notes: notes.trim() || null,
         amount: null,
@@ -217,6 +222,7 @@ export function FollowUpModal({ visible, source, onClose, onNavigateToDate }: Pr
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <Text style={styles.title}>Add follow-up</Text>
@@ -364,6 +370,7 @@ export function FollowUpModal({ visible, source, onClose, onNavigateToDate }: Pr
           </View>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
 
       <CalendarModal
         visible={showCalendar}

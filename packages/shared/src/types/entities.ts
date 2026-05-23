@@ -51,11 +51,17 @@ export interface Account {
   website: string | null;
   notes: string | null;
   is_prospect: boolean;
+  /** Archived accounts are hidden from the main/prospect lists. */
+  is_archived: boolean;
+  /** Priority tier; null when unassigned. */
+  level: AccountLevel | null;
   /** ID of the contact marked as primary for this account; null if none. */
   primary_contact_id: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type AccountLevel = 'A' | 'B' | 'C';
 
 export interface Contact {
   id: string;
@@ -94,11 +100,18 @@ export const EVENT_TYPES: EventTypePrimary[] = [
 
 export const SALE_EVENT_TYPES: EventTypePrimary[] = ['visit', 'demo', 'meeting'];
 
+export type EventKind = 'note' | 'task';
+
 export interface Event {
   id: string;
   user_id: string;
   day_id: string;
   type: string; // EventTypePrimary | freeform string
+  /**
+   * 'note' → record-keeping entry, no checkbox/strikethrough.
+   * 'task' → completable, shows checkbox and done strikethrough.
+   */
+  kind: EventKind;
   status: 'todo' | 'done';
   notes: string | null;
   amount: number | null; // only for sale/revenue events

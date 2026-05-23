@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Linking, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, spacing, radius, typography } from '../../theme';
 import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
@@ -295,10 +296,15 @@ export function ContactDetailModal({ visible, contactId, linkToAccountId, onClos
   }, [existing, events, eventContacts, eventAccounts, accounts, days]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <Pressable style={styles.overlay} onPress={handleClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={styles.title}>{isNew ? 'New contact' : fullDisplayName}</Text>
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={handleClose}>
+      <SafeAreaView style={styles.fullSheet} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title} numberOfLines={1}>{isNew ? 'New contact' : fullDisplayName}</Text>
+            <Pressable onPress={handleClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
+              <Text style={styles.closeX}>✕</Text>
+            </Pressable>
+          </View>
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
             <View style={styles.row2}>
@@ -523,8 +529,8 @@ export function ContactDetailModal({ visible, contactId, linkToAccountId, onClos
               loading={saving}
             />
           </View>
-        </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -614,32 +620,32 @@ const fieldStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  overlay: {
+  fullSheet: {
     flex: 1,
-    backgroundColor: colors.bg.overlay,
-    justifyContent: 'flex-end',
-    padding: spacing[4],
+    backgroundColor: colors.bg.canvas,
   },
-  sheet: {
-    backgroundColor: colors.bg.sunken,
-    borderRadius: radius.lg,
-    borderWidth: 0.5,
-    borderColor: colors.border.default,
-    overflow: 'hidden',
-    maxHeight: '90%',
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[3],
+    paddingBottom: spacing[3],
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.border.muted,
   },
   title: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[4],
-    paddingBottom: spacing[3],
+    flex: 1,
     fontSize: typography.size.lg,
     fontWeight: typography.weight.semibold,
     letterSpacing: typography.letterSpacing.tight,
     color: colors.text.primary,
-    borderBottomWidth: 0.5,
-    borderBottomColor: colors.border.muted,
   },
-  scroll: { maxHeight: 560 },
+  closeX: {
+    fontSize: typography.size.lg,
+    color: colors.text.secondary,
+    paddingHorizontal: spacing[2],
+  },
+  scroll: { flex: 1 },
   body: {
     padding: spacing[3],
     gap: spacing[3],

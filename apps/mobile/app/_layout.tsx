@@ -57,7 +57,7 @@ export default function RootLayout() {
             <Spinner size="small" />
           </View>
         </View>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
       </SafeAreaProvider>
     );
   }

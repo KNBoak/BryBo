@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors, spacing, radius, typography } from '../../theme';
 import { useDataStore } from '../../stores/dataStore';
 import { generateId } from '../../utils/ids';
@@ -78,6 +78,8 @@ export function EventFormModal({ visible, initial, onClose, onSaved }: Props) {
   const isSaleDraft = amount != null && (amount ?? '').trim() !== '';
   const status: 'todo' | 'done' =
     initial.status ?? (isSaleDraft ? 'done' : (date < today ? 'done' : 'todo'));
+  // Sales are record-keeping notes; outstanding (todo) interactions are tasks.
+  const kind: 'note' | 'task' = isSaleDraft ? 'note' : (status === 'todo' ? 'task' : 'note');
 
   const userAccounts = useMemo(
     () => storeAccounts.filter((a) => a.user_id === activeUserId),
@@ -183,6 +185,7 @@ export function EventFormModal({ visible, initial, onClose, onSaved }: Props) {
         user_id: activeUserId,
         day_id: day.id,
         type: hasAmount ? 'sale' : type,
+        kind,
         status,
         notes: finalNotes,
         amount: hasAmount ? parsedAmount : null,
@@ -204,6 +207,7 @@ export function EventFormModal({ visible, initial, onClose, onSaved }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <Text style={styles.title}>{initial.title ?? 'New event'}</Text>
@@ -335,6 +339,7 @@ export function EventFormModal({ visible, initial, onClose, onSaved }: Props) {
           </View>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
 
       <CalendarModal
         visible={showCalendar}

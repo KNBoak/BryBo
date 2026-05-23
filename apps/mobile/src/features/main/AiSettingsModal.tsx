@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, TextInput, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, TextInput, Linking, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors, spacing, radius, typography } from '../../theme';
 import { getApiKey, setApiKey, clearApiKey } from '../../utils/apiKeyStore';
 import { logError } from '../../utils/debug';
@@ -83,6 +83,7 @@ export function AiSettingsModal({ visible, onClose, onSaved }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Pressable style={styles.overlay} onPress={handleClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <Text style={styles.title}>Anthropic API key</Text>
@@ -140,6 +141,7 @@ export function AiSettingsModal({ visible, onClose, onSaved }: Props) {
           </View>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

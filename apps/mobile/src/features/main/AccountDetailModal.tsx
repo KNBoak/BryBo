@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Alert, Linking, Platform } from 'react-native';
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView, TextInput, Alert, Linking, Platform, KeyboardAvoidingView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { colors, spacing, radius, typography } from '../../theme';
 import { useDataStore } from '../../stores/dataStore';
@@ -8,7 +9,7 @@ import { logError } from '../../utils/debug';
 import { formatPhone, isValidPhone } from '../../utils/validation';
 import { isVisibleEventDate } from '../../utils/dateCutoff';
 import { Button } from '../../components/ui';
-import type { Account, AccountAddress } from '@brybo/shared';
+import type { Account, AccountAddress, AccountLevel } from '@brybo/shared';
 import { today as todayIso } from '@brybo/shared';
 
 interface Props {
@@ -33,6 +34,8 @@ const EMPTY_DRAFT = {
   website: '',
   notes: '',
   is_prospect: true,
+  is_archived: false,
+  level: null as AccountLevel | null,
   primary_contact_id: null as string | null,
 };
 
@@ -77,6 +80,8 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         website: existing.website ?? '',
         notes: existing.notes ?? '',
         is_prospect: existing.is_prospect ?? true,
+        is_archived: existing.is_archived ?? false,
+        level: existing.level ?? null,
         primary_contact_id: existing.primary_contact_id ?? null,
       });
     }
@@ -93,6 +98,8 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
       website: existing.website ?? '',
       notes: existing.notes ?? '',
       is_prospect: existing.is_prospect ?? true,
+      is_archived: existing.is_archived ?? false,
+      level: existing.level ?? null,
       primary_contact_id: existing.primary_contact_id ?? null,
     };
     return EMPTY_DRAFT;
@@ -179,6 +186,8 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
         website: draft.website.trim() || null,
         notes: draft.notes.trim() || null,
         is_prospect: draft.is_prospect,
+        is_archived: draft.is_archived,
+        level: draft.level,
         primary_contact_id: draft.primary_contact_id,
         created_at: existing?.created_at ?? now,
         updated_at: now,
@@ -218,6 +227,20 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
     );
   };
 
+  const handleToggleArchive = async () => {
+    if (!existing) return;
+    try {
+      await upsertAccount({
+        ...existing,
+        is_archived: !existing.is_archived,
+        updated_at: new Date().toISOString(),
+      });
+      onClose();
+    } catch (e) {
+      logError(TAG, 'handleToggleArchive threw', e);
+    }
+  };
+
   const handleClose = () => {
     if (!dirty) { onClose(); return; }
     Alert.alert(
@@ -231,12 +254,17 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <Pressable style={styles.overlay} onPress={handleClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={styles.title}>
-            {isNew ? 'New account' : existing?.name ?? 'Account'}
-          </Text>
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={handleClose}>
+      <SafeAreaView style={styles.fullSheet} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title} numberOfLines={1}>
+              {isNew ? 'New account' : existing?.name ?? 'Account'}
+            </Text>
+            <Pressable onPress={handleClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
+              <Text style={styles.closeX}>✕</Text>
+            </Pressable>
+          </View>
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
 
@@ -261,6 +289,27 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
                     <Text style={styles.salesValue}>{formatMoney(totalSales)}</Text>
                   </View>
                 </View>
+              )}
+            </View>
+
+            <View style={styles.levelRow}>
+              <Text style={styles.levelRowLabel}>Level</Text>
+              {(['A', 'B', 'C'] as const).map((lvl) => {
+                const active = draft.level === lvl;
+                return (
+                  <Pressable
+                    key={lvl}
+                    style={[styles.levelChip, active && styles.levelChipActive]}
+                    onPress={() => setDraft({ ...draft, level: active ? null : lvl })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Level ${lvl}${active ? ' (selected)' : ''}`}
+                  >
+                    <Text style={[styles.levelChipText, active && styles.levelChipTextActive]}>{lvl}</Text>
+                  </Pressable>
+                );
+              })}
+              {draft.is_archived && (
+                <Text style={styles.archivedTag}>🗄 Archived</Text>
               )}
             </View>
 
@@ -409,6 +458,14 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
                 />
               </View>
             )}
+            {!isNew && (
+              <Button
+                label={existing?.is_archived ? 'Unarchive' : 'Archive'}
+                onPress={handleToggleArchive}
+                variant="ghost"
+                size="sm"
+              />
+            )}
             <Button
               label="Cancel"
               onPress={handleClose}
@@ -424,8 +481,8 @@ export function AccountDetailModal({ visible, accountId, onClose, onSaved, onOpe
               loading={saving}
             />
           </View>
-        </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -884,32 +941,32 @@ const addrStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  overlay: {
+  fullSheet: {
     flex: 1,
-    backgroundColor: colors.bg.overlay,
-    justifyContent: 'flex-end',
-    padding: spacing[4],
+    backgroundColor: colors.bg.canvas,
   },
-  sheet: {
-    backgroundColor: colors.bg.sunken,
-    borderRadius: radius.lg,
-    borderWidth: 0.5,
-    borderColor: colors.border.default,
-    overflow: 'hidden',
-    maxHeight: '85%',
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[3],
+    paddingBottom: spacing[3],
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.border.muted,
   },
   title: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[4],
-    paddingBottom: spacing[3],
+    flex: 1,
     fontSize: typography.size.lg,
     fontWeight: typography.weight.semibold,
     letterSpacing: typography.letterSpacing.tight,
     color: colors.text.primary,
-    borderBottomWidth: 0.5,
-    borderBottomColor: colors.border.muted,
   },
-  scroll: { maxHeight: 480 },
+  closeX: {
+    fontSize: typography.size.lg,
+    color: colors.text.secondary,
+    paddingHorizontal: spacing[2],
+  },
+  scroll: { flex: 1 },
   body: {
     padding: spacing[3],
     gap: spacing[3],
@@ -918,6 +975,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[2],
+  },
+  levelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  levelRowLabel: {
+    fontSize: typography.size.sm,
+    color: colors.text.secondary,
+    marginRight: spacing[1],
+  },
+  levelChip: {
+    width: 34,
+    height: 30,
+    borderRadius: radius.md,
+    borderWidth: 0.5,
+    borderColor: colors.border.default,
+    backgroundColor: colors.bg.sunken,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  levelChipActive: {
+    backgroundColor: colors.interactive.primary,
+    borderColor: colors.interactive.primary,
+  },
+  levelChipText: {
+    fontSize: typography.size.base,
+    fontWeight: typography.weight.bold,
+    color: colors.text.secondary,
+  },
+  levelChipTextActive: { color: colors.interactive.primaryText },
+  archivedTag: {
+    fontSize: typography.size.xs,
+    color: colors.text.secondary,
+    fontWeight: typography.weight.medium,
   },
   statusBadge: {
     paddingHorizontal: spacing[3],
